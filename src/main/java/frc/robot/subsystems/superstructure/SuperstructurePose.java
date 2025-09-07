@@ -1,5 +1,3 @@
 package frc.robot.subsystems.superstructure;
 
-public class SuperstructurePose {
-    
-}
+public class SuperstructurePose {}
