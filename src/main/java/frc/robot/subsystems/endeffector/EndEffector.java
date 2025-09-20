@@ -5,11 +5,7 @@ import edu.wpi.first.math.filter.LinearFilter;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
-import edu.wpi.first.wpilibj2.command.RunCommand;
-import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import edu.wpi.first.wpilibj2.command.WaitCommand;
-import edu.wpi.first.wpilibj2.command.WaitUntilCommand;
 import frc.robot.Constants;
 import frc.robot.Robot;
 import frc.robot.RobotState;
@@ -76,71 +72,6 @@ public class EndEffector extends SubsystemBase {
   /** stops running the intake motor Do not use this to hold algae. Use {@code holdAlgae()}. */
   public Command stopMotorCommand() {
     return new InstantCommand(() -> io.stop());
-  }
-
-  /**
-   * Runs the intake until the robot has coral, and then slowly secures it to a consistent place
-   *
-   * @return the command
-   */
-  public Command intakeCoralCommand() { // TODO: Idk man this needs constants ig?
-    return new SequentialCommandGroup(
-        new InstantCommand(() -> io.runVolts(2)),
-        new WaitUntilCommand(this::hasCoral),
-        new InstantCommand(() -> io.runVolts(2)),
-        new WaitUntilCommand(this::coralArmed),
-        new InstantCommand(() -> io.runVolts(1)),
-        new WaitUntilCommand(this::hasCoral),
-        stopMotorCommand());
-  }
-
-  public Command intakeAlgaeCommand() {
-    return new InstantCommand(() -> io.runVolts(2)).andThen(new RunCommand(() -> {}));
-  }
-
-  /**
-   * Runs the motor until there isn't coral in the system
-   *
-   * @return the command
-   */
-  public Command depositCoralCommand() {
-    return new InstantCommand(() -> io.runVolts(2))
-        .andThen(new RunCommand(() -> {}))
-        .finallyDo(this::stopMotorCommand);
-  }
-
-  /**
-   * Runs the motor until there isn't coral in the system
-   *
-   * @return the command
-   */
-  public Command depositL1CoralCommand() {
-    return new InstantCommand(() -> io.runVolts(2))
-        .andThen(new RunCommand(() -> {}))
-        .finallyDo(this::stopMotorCommand);
-  }
-
-  public Command depositAlgaeCommand() {
-    return new InstantCommand(() -> io.runVolts(2))
-        .andThen(new RunCommand(() -> {}))
-        .until(() -> (!hasAlgae()))
-        .finallyDo(this::stopMotorCommand);
-  }
-
-  public Command waitForCoralIntakeCommand() {
-    return new WaitCommand(Constants.AutoConstants.INTAKE_CORAL_WAIT_TIME);
-  }
-
-  public Command waitForAlgaeIntakeCommand() {
-    return new WaitCommand(Constants.AutoConstants.INTAKE_ALGAE_WAIT_TIME);
-  }
-
-  public Command waitForAlgaeScoreCommand() {
-    return new WaitCommand(Constants.AutoConstants.SCORE_ALGAE_WAIT_TIME);
-  }
-
-  public Command waitForCoralScoreCommand() {
-    return new WaitCommand(Constants.AutoConstants.SCORE_CORAL_WAIT_TIME);
   }
 
   // IOData Getters

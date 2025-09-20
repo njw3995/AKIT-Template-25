@@ -1,101 +1,32 @@
 package frc.robot;
 
+import edu.wpi.first.math.Matrix;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.interpolation.TimeInterpolatableBuffer;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
-import edu.wpi.first.math.kinematics.SwerveDriveOdometry;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
-import edu.wpi.first.math.util.Units;
-import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.math.numbers.N1;
+import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.wpilibj.Timer;
 import frc.robot.subsystems.drive.DriveConstants;
-import frc.robot.subsystems.elevator.ElevatorConstants.ElevatorPositions;
-import frc.robot.subsystems.vision.Camera;
-import frc.robot.subsystems.vision.CameraDuty;
-import frc.robot.util.AllianceFlipUtil;
-import frc.robot.util.FieldConstants;
-import frc.robot.util.FieldConstants.ReefSide;
-import frc.robot.util.GeometryUtil;
-import frc.robot.util.NTPrefixes;
-import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.Getter;
 import lombok.Setter;
-import org.littletonrobotics.junction.AutoLogOutput;
-import org.littletonrobotics.junction.Logger;
 
-public class RobotState {
-  private static Rotation2d robotHeading;
-  private static Rotation2d headingOffset;
-  private static SwerveModulePosition[] modulePositions;
+/**
+ * RobotState: localization + motion state only. - Field & Reef Pose Estimators (odometry + vision)
+ * - Odometry-only pose for debugging - Timestamped fused-pose buffer for latency
+ * compensation/prediction - Measured & desired chassis speeds (robot & field frames) - Pose reset
+ * with gyro offset anchoring
+ */
+public final class RobotState {
 
-  private static final SwerveDrivePoseEstimator fieldLocalizer;
-  private static final SwerveDrivePoseEstimator reefLocalizer;
-  private static final SwerveDriveOdometry odometry;
-
-  @Getter private static ReefAlignData reefAlignData;
-  @Getter private static OperatorInputData OIData;
-  @Getter private static RobotConfigurationData robotConfigurationData;
-
-  @Getter
-  @Setter
-  @AutoLogOutput(key = "RobotState/ElevatorExtensionPercent")
-  private double elevatorExtensionPercent;
-
-  @Getter @Setter private static RobotMode mode;
-  @Getter @Setter private static boolean hasAlgae;
-
-  @Getter @Setter private static boolean isIntakingCoral;
-  @Getter @Setter private static boolean isIntakingAlgae;
-  @Getter @Setter private static boolean isAutoAligning;
-  @Getter @Setter private static boolean autoClapOverride;
-
-  static {
-    OIData = new OperatorInputData(ReefSide.LEFT, ElevatorPositions.STOW);
-
-    robotHeading = new Rotation2d();
-    headingOffset = new Rotation2d();
-    modulePositions = new SwerveModulePosition[4];
-
-    for (int i = 0; i < modulePositions.length; i++) {
-      modulePositions[i] = new SwerveModulePosition();
-    }
-
-    fieldLocalizer =
-        new SwerveDrivePoseEstimator(
-            new SwerveDriveKinematics(DriveConstants.moduleTranslations),
-            new Rotation2d(),
-            modulePositions,
-            new Pose2d());
-    reefLocalizer =
-        new SwerveDrivePoseEstimator(
-            new SwerveDriveKinematics(DriveConstants.moduleTranslations),
-            new Rotation2d(),
-            modulePositions,
-            new Pose2d());
-    odometry =
-        new SwerveDriveOdometry(
-            new SwerveDriveKinematics(DriveConstants.moduleTranslations),
-            new Rotation2d(),
-            modulePositions);
-
-    reefAlignData =
-        new ReefAlignData(
-            -1,
-            new Pose2d(),
-            new Pose2d(),
-            0.0,
-            0.0,
-            false,
-            false,
-            ElevatorPositions.ALGAE_INTAKE_BOT);
-    robotConfigurationData = new RobotConfigurationData(0.0, new Rotation2d(), 0.0);
-  }
-
-  public RobotState() {}
-
+  // ===== Singleton =====
   private static RobotState instance;
 
   public static RobotState getInstance() {
@@ -103,417 +34,251 @@ public class RobotState {
     return instance;
   }
 
-  public static void periodic(
-      Rotation2d robotHeading,
-      long latestRobotHeadingTimestamp,
-      double robotYawVelocity,
-      Translation2d robotFieldRelativeVelocity,
-      SwerveModulePosition[] modulePositions,
-      Camera[] cameras) {
-    RobotState.robotHeading = robotHeading;
-    RobotState.modulePositions = modulePositions;
+  // ===== Kinematics / Estimators / Odometry =====
+  private static final SwerveDriveKinematics kinematics =
+      new SwerveDriveKinematics(DriveConstants.moduleTranslations);
 
-    fieldLocalizer.updateWithTime(Timer.getTimestamp(), robotHeading, modulePositions);
-    reefLocalizer.updateWithTime(Timer.getTimestamp(), robotHeading, modulePositions);
-    odometry.update(robotHeading, modulePositions);
+  /** Fused, global field pose. */
+  private static final SwerveDrivePoseEstimator fieldLocalizer =
+      new SwerveDrivePoseEstimator(
+          kinematics,
+          Rotation2d.kZero,
+          new SwerveModulePosition[] {
+            new SwerveModulePosition(), new SwerveModulePosition(),
+            new SwerveModulePosition(), new SwerveModulePosition()
+          },
+          new Pose2d());
 
-    for (Camera camera : cameras) {
-      double[] limelightHeadingData = {
-        robotHeading.minus(headingOffset).getDegrees(), 0.0, 0.0, 0.0, 0.0, 0.0
+  /** Second estimator for reef-context vision fusion. */
+  private static final SwerveDrivePoseEstimator reefLocalizer =
+      new SwerveDrivePoseEstimator(
+          kinematics,
+          Rotation2d.kZero,
+          new SwerveModulePosition[] {
+            new SwerveModulePosition(), new SwerveModulePosition(),
+            new SwerveModulePosition(), new SwerveModulePosition()
+          },
+          new Pose2d());
+
+  /** Pure odometry (same inputs) for debugging/visibility. */
+  private static final edu.wpi.first.math.kinematics.SwerveDriveOdometry odometry =
+      new edu.wpi.first.math.kinematics.SwerveDriveOdometry(
+          kinematics,
+          Rotation2d.kZero,
+          new SwerveModulePosition[] {
+            new SwerveModulePosition(), new SwerveModulePosition(),
+            new SwerveModulePosition(), new SwerveModulePosition()
+          });
+
+  // ===== Core state for heading anchoring and integration =====
+  /** Latest raw gyro yaw provided by Drive (un-offset). */
+  private static Rotation2d robotHeadingRaw = Rotation2d.kZero;
+
+  /**
+   * Heading offset so that (raw + offset) equals the estimator’s frame rotation. IMPORTANT: offset
+   * = desiredRotation - rawGyroRotation
+   */
+  private static Rotation2d headingOffset = Rotation2d.kZero;
+
+  /** Our current best yaw (raw + offset) used for estimator updates. */
+  private static Rotation2d yawWithOffset = Rotation2d.kZero;
+
+  /** Last wheel positions (for heading integration when gyro is missing for a cycle). */
+  private static SwerveModulePosition[] lastWheelPositions =
+      new SwerveModulePosition[] {
+        new SwerveModulePosition(), new SwerveModulePosition(),
+        new SwerveModulePosition(), new SwerveModulePosition()
       };
-      camera.getRobotHeadingPublisher().set(limelightHeadingData, latestRobotHeadingTimestamp);
-    }
 
-    NetworkTableInstance.getDefault().flush();
+  /** Keep module positions for resets. Updated on every odometry observation. */
+  private static SwerveModulePosition[] currentWheelPositions =
+      new SwerveModulePosition[] {
+        new SwerveModulePosition(), new SwerveModulePosition(),
+        new SwerveModulePosition(), new SwerveModulePosition()
+      };
 
-    for (Camera camera : cameras) {
-      if (camera.getCameraDuties().contains(CameraDuty.FIELD_LOCALIZATION)
-          && camera.getTargetAquired()
-          && !GeometryUtil.isZero(camera.getPrimaryPose())
-          && !GeometryUtil.isZero(camera.getSecondaryPose())
-          && Math.abs(robotYawVelocity) <= Units.degreesToRadians(15.0)
-          && Math.abs(robotFieldRelativeVelocity.getNorm()) <= 1.0
-          && camera.getTotalTargets() > 0) {
-        double xyStddevPrimary =
-            camera.getPrimaryXYStandardDeviationCoefficient()
-                * Math.pow(camera.getAverageDistance(), 2.0)
-                / camera.getTotalTargets()
-                * camera.getHorizontalFOV();
-        fieldLocalizer.addVisionMeasurement(
-            camera.getPrimaryPose(),
-            camera.getFrameTimestamp(),
-            VecBuilder.fill(xyStddevPrimary, xyStddevPrimary, Double.POSITIVE_INFINITY));
-        if (camera.getTotalTargets() > 1) {
-          double xyStddevSecondary =
-              camera.getSecondaryXYStandardDeviationCoefficient()
-                  * Math.pow(camera.getAverageDistance(), 2.0)
-                  / camera.getTotalTargets()
-                  * camera.getHorizontalFOV();
-          fieldLocalizer.addVisionMeasurement(
-              camera.getSecondaryPose(),
-              camera.getFrameTimestamp(),
-              VecBuilder.fill(xyStddevSecondary, xyStddevSecondary, Double.POSITIVE_INFINITY));
-        }
-      }
-    }
+  // ===== Timestamped fused field pose buffer =====
+  private static final double kPoseBufferSecs = 2.0;
+  private final TimeInterpolatableBuffer<Pose2d> fusedPoseBuffer =
+      TimeInterpolatableBuffer.createBuffer(kPoseBufferSecs);
 
-    int closestReefTag = getMinDistanceReefTag();
+  // ===== Speeds (measured & desired) =====
+  private final AtomicReference<ChassisSpeeds> measuredRobotRelSpeeds =
+      new AtomicReference<>(new ChassisSpeeds());
+  private final AtomicReference<ChassisSpeeds> measuredFieldRelSpeeds =
+      new AtomicReference<>(new ChassisSpeeds());
+  private final AtomicReference<ChassisSpeeds> desiredRobotRelSpeeds =
+      new AtomicReference<>(new ChassisSpeeds());
+  private final AtomicReference<ChassisSpeeds> desiredFieldRelSpeeds =
+      new AtomicReference<>(new ChassisSpeeds());
 
-    for (Camera camera : cameras) {
-      if (camera.getCameraDuties().contains(CameraDuty.REEF_LOCALIZATION)
-          && !GeometryUtil.isZero(camera.getPrimaryPose())
-          && camera.getTotalTargets() > 0) {
-        double xyStddevPrimary =
-            camera.getPrimaryXYStandardDeviationCoefficient()
-                * Math.pow(camera.getAverageDistance(), 2.0)
-                / camera.getTotalTargets()
-                * camera.getHorizontalFOV();
-        reefLocalizer.addVisionMeasurement(
-            camera.getPrimaryPose(),
-            camera.getFrameTimestamp(),
-            VecBuilder.fill(xyStddevPrimary, xyStddevPrimary, Double.POSITIVE_INFINITY));
-      }
-    }
+  @Getter @Setter private static RobotMode mode = RobotMode.DISABLED;
 
-    Pose2d autoAlignCoralSetpoint =
-        OIData.currentReefHeight().equals(ElevatorPositions.L1)
-            ? FieldConstants.getNearestReefFace(getRobotPoseReef())
-            : FieldConstants.getNearestReefBranch(getRobotPoseReef(), OIData.currentReefPost());
-    Pose2d autoAlignAlgaeSetpoint = FieldConstants.getNearestReefFace(getRobotPoseReef());
-
-    double distanceToCoralSetpoint =
-        RobotState.getRobotPoseReef()
-            .getTranslation()
-            .getDistance(autoAlignCoralSetpoint.getTranslation());
-    double distanceToAlgaeSetpoint =
-        RobotState.getRobotPoseReef()
-            .getTranslation()
-            .getDistance(autoAlignAlgaeSetpoint.getTranslation());
-
-    boolean atCoralSetpoint =
-        Math.abs(distanceToCoralSetpoint)
-            <= DriveConstants.ALIGN_ROBOT_TO_APRIL_TAG_CONSTANTS.positionThresholdMeters().get();
-    boolean atAlgaeSetpoint =
-        Math.abs(distanceToAlgaeSetpoint)
-            <= DriveConstants.ALIGN_ROBOT_TO_APRIL_TAG_CONSTANTS.positionThresholdMeters().get();
-
-    ElevatorPositions algaeHeight;
-    switch (closestReefTag) {
-      case 10, 6, 8, 21, 17, 19:
-        algaeHeight = ElevatorPositions.ALGAE_INTAKE_BOT;
-        break;
-      case 9, 11, 7, 22, 20, 18:
-        algaeHeight = ElevatorPositions.ALGAE_INTAKE_TOP;
-        break;
-      default:
-        algaeHeight = ElevatorPositions.ALGAE_INTAKE_BOT;
-        break;
-    }
-    ;
-
-    reefAlignData =
-        new ReefAlignData(
-            closestReefTag,
-            autoAlignCoralSetpoint,
-            autoAlignAlgaeSetpoint,
-            distanceToCoralSetpoint,
-            distanceToAlgaeSetpoint,
-            atCoralSetpoint,
-            atAlgaeSetpoint,
-            algaeHeight,
-            cameras);
-
-    Logger.recordOutput(NTPrefixes.ROBOT_STATE + "Has Algae", hasAlgae);
-
-    Logger.recordOutput(NTPrefixes.POSE_DATA + "Field Pose", fieldLocalizer.getEstimatedPosition());
-    Logger.recordOutput(NTPrefixes.POSE_DATA + "Odometry Pose", odometry.getPoseMeters());
-    Logger.recordOutput(NTPrefixes.POSE_DATA + "Heading Offset", headingOffset);
-
-    Logger.recordOutput(NTPrefixes.OI_DATA + "Reef Post", OIData.currentReefPost());
-    Logger.recordOutput(NTPrefixes.OI_DATA + "Reef Height", OIData.currentReefHeight());
-
-    Logger.recordOutput(NTPrefixes.REEF_DATA + "Reef Pose", reefLocalizer.getEstimatedPosition());
-    Logger.recordOutput(NTPrefixes.REEF_DATA + "Closest Reef April Tag", closestReefTag);
-
-    Logger.recordOutput(NTPrefixes.CORAL_DATA + "Coral Setpoint", autoAlignCoralSetpoint);
-    Logger.recordOutput(NTPrefixes.CORAL_DATA + "Coral Setpoint Error", distanceToCoralSetpoint);
-    Logger.recordOutput(NTPrefixes.CORAL_DATA + "At Coral Setpoint", atCoralSetpoint);
-
-    Logger.recordOutput(NTPrefixes.ALGAE_DATA + "Algae Setpoint", autoAlignAlgaeSetpoint);
-    Logger.recordOutput(NTPrefixes.ALGAE_DATA + "Algae Setpoint Error", distanceToAlgaeSetpoint);
-    Logger.recordOutput(NTPrefixes.ALGAE_DATA + "At Algae Setpoint", atAlgaeSetpoint);
+  private RobotState() {
+    fusedPoseBuffer.addSample(Timer.getTimestamp(), Pose2d.kZero);
   }
 
-  public static void periodic(
-      Rotation2d robotHeading,
-      long latestRobotHeadingTimestamp,
-      double robotYawVelocity,
-      Translation2d robotFieldRelativeVelocity,
-      SwerveModulePosition[] modulePositions,
-      double intakeStart,
-      Rotation2d armStart,
-      double elevatorStart,
-      Camera[] cameras) {
-    RobotState.robotHeading = robotHeading;
-    RobotState.modulePositions = modulePositions;
+  // ============================================================
+  // Odometry (Drive calls this with timestamped samples)
+  // ============================================================
 
-    fieldLocalizer.updateWithTime(Timer.getTimestamp(), robotHeading, modulePositions);
-    reefLocalizer.updateWithTime(Timer.getTimestamp(), robotHeading, modulePositions);
-    odometry.update(robotHeading, modulePositions);
+  /**
+   * Add an odometry sample.
+   *
+   * @param timestampSeconds FPGA timestamp for this sample
+   * @param wheelPositions module positions at this timestamp
+   * @param gyroYawRaw optional raw gyro yaw at this timestamp (empty if unavailable)
+   */
+  public synchronized void addOdometryObservation(
+      double timestampSeconds,
+      SwerveModulePosition[] wheelPositions,
+      Optional<Rotation2d> gyroYawRaw) {
 
-    for (Camera camera : cameras) {
-      double[] limelightHeadingData = {
-        robotHeading.minus(headingOffset).getDegrees(), 0.0, 0.0, 0.0, 0.0, 0.0
-      };
-      camera.getRobotHeadingPublisher().set(limelightHeadingData, latestRobotHeadingTimestamp);
+    currentWheelPositions = wheelPositions;
+
+    if (gyroYawRaw.isPresent()) {
+      robotHeadingRaw = gyroYawRaw.get();
+      yawWithOffset = robotHeadingRaw.plus(headingOffset);
+    } else {
+      var twist = kinematics.toTwist2d(lastWheelPositions, wheelPositions);
+      yawWithOffset = yawWithOffset.plus(new Rotation2d(twist.dtheta));
     }
+    lastWheelPositions = wheelPositions;
 
-    NetworkTableInstance.getDefault().flush();
+    fieldLocalizer.updateWithTime(timestampSeconds, yawWithOffset, wheelPositions);
+    reefLocalizer.updateWithTime(timestampSeconds, yawWithOffset, wheelPositions);
+    odometry.update(yawWithOffset, wheelPositions);
 
-    for (Camera camera : cameras) {
-      if (camera.getCameraDuties().contains(CameraDuty.FIELD_LOCALIZATION)
-          && camera.getTargetAquired()
-          && !GeometryUtil.isZero(camera.getPrimaryPose())
-          && Math.abs(robotYawVelocity) <= Units.degreesToRadians(15.0)
-          && Math.abs(robotFieldRelativeVelocity.getNorm()) <= 1.0
-          && camera.getTotalTargets() > 0
-          && RobotMode.enabled()) {
-        double xyStddevPrimary =
-            camera.getPrimaryXYStandardDeviationCoefficient()
-                * Math.pow(camera.getAverageDistance(), 2.0)
-                / camera.getTotalTargets()
-                * camera.getHorizontalFOV();
-        fieldLocalizer.addVisionMeasurement(
-            camera.getPrimaryPose(),
-            camera.getFrameTimestamp(),
-            VecBuilder.fill(xyStddevPrimary, xyStddevPrimary, Double.POSITIVE_INFINITY));
-      }
-      if (camera.getCameraDuties().contains(CameraDuty.FIELD_LOCALIZATION)
-          && camera.getTargetAquired()
-          && !GeometryUtil.isZero(camera.getSecondaryPose())
-          && Math.abs(robotYawVelocity) <= Units.degreesToRadians(10.0)
-          && Math.abs(robotFieldRelativeVelocity.getNorm()) <= 1.0
-          && camera.getTotalTargets() > 1
-          && RobotMode.disabled()) {
-        double xyStddevSecondary =
-            camera.getSecondaryXYStandardDeviationCoefficient()
-                * Math.pow(camera.getAverageDistance(), 2.0)
-                / camera.getTotalTargets()
-                * camera.getHorizontalFOV();
-        fieldLocalizer.addVisionMeasurement(
-            camera.getSecondaryPose(),
-            camera.getFrameTimestamp(),
-            VecBuilder.fill(xyStddevSecondary, xyStddevSecondary, 0.1));
-      }
-    }
-
-    int closestReefTag = getMinDistanceReefTag();
-
-    for (Camera camera : cameras) {
-      if (camera.getCameraDuties().contains(CameraDuty.REEF_LOCALIZATION)
-          && !GeometryUtil.isZero(camera.getPrimaryPose())
-          && camera.getTotalTargets() > 0) {
-        double xyStddevPrimary =
-            camera.getPrimaryXYStandardDeviationCoefficient()
-                * Math.pow(camera.getAverageDistance(), 2.0)
-                / camera.getTotalTargets()
-                * camera.getHorizontalFOV();
-        reefLocalizer.addVisionMeasurement(
-            camera.getPrimaryPose(),
-            camera.getFrameTimestamp(),
-            VecBuilder.fill(xyStddevPrimary, xyStddevPrimary, Double.POSITIVE_INFINITY));
-      }
-    }
-
-    if (RobotMode.disabled()) {
-      resetRobotPose(getRobotPoseField());
-    }
-
-    Pose2d autoAlignCoralSetpoint =
-        OIData.currentReefHeight().equals(ElevatorPositions.L1)
-            ? FieldConstants.getNearestReefFace(getRobotPoseReef())
-            : FieldConstants.getNearestReefBranch(getRobotPoseReef(), OIData.currentReefPost());
-    Pose2d autoAlignAlgaeSetpoint = FieldConstants.getNearestReefFace(getRobotPoseReef());
-
-    double distanceToCoralSetpoint =
-        RobotState.getRobotPoseReef()
-            .getTranslation()
-            .getDistance(autoAlignCoralSetpoint.getTranslation());
-    double distanceToAlgaeSetpoint =
-        RobotState.getRobotPoseReef()
-            .getTranslation()
-            .getDistance(autoAlignAlgaeSetpoint.getTranslation());
-
-    boolean atCoralSetpoint =
-        Math.abs(distanceToCoralSetpoint)
-            <= DriveConstants.ALIGN_ROBOT_TO_APRIL_TAG_CONSTANTS.positionThresholdMeters().get();
-    boolean atAlgaeSetpoint =
-        Math.abs(distanceToAlgaeSetpoint)
-            <= DriveConstants.ALIGN_ROBOT_TO_APRIL_TAG_CONSTANTS.positionThresholdMeters().get();
-
-    ElevatorPositions algaeHeight;
-    switch (closestReefTag) {
-      case 10:
-      case 6:
-      case 8:
-      case 21:
-      case 17:
-      case 19:
-        algaeHeight = ElevatorPositions.ALGAE_INTAKE_BOT;
-        break;
-      case 9:
-      case 11:
-      case 7:
-      case 22:
-      case 20:
-      case 18:
-        algaeHeight = ElevatorPositions.ALGAE_INTAKE_TOP;
-        break;
-      default:
-        algaeHeight = ElevatorPositions.ALGAE_INTAKE_BOT;
-        break;
-    }
-
-    reefAlignData =
-        new ReefAlignData(
-            closestReefTag,
-            autoAlignCoralSetpoint,
-            autoAlignAlgaeSetpoint,
-            distanceToCoralSetpoint,
-            distanceToAlgaeSetpoint,
-            atCoralSetpoint,
-            atAlgaeSetpoint,
-            algaeHeight,
-            cameras);
-
-    robotConfigurationData = new RobotConfigurationData(intakeStart, armStart, elevatorStart);
-
-    Logger.recordOutput(NTPrefixes.ROBOT_STATE + "Has Algae", hasAlgae);
-
-    Logger.recordOutput(NTPrefixes.POSE_DATA + "Field Pose", fieldLocalizer.getEstimatedPosition());
-    Logger.recordOutput(NTPrefixes.POSE_DATA + "Odometry Pose", odometry.getPoseMeters());
-    Logger.recordOutput(NTPrefixes.POSE_DATA + "Heading Offset", headingOffset);
-
-    Logger.recordOutput(NTPrefixes.OI_DATA + "Reef Post", OIData.currentReefPost());
-    Logger.recordOutput(NTPrefixes.OI_DATA + "Reef Height", OIData.currentReefHeight());
-
-    Logger.recordOutput(NTPrefixes.REEF_DATA + "Reef Pose", reefLocalizer.getEstimatedPosition());
-    Logger.recordOutput(NTPrefixes.REEF_DATA + "Closest Reef April Tag", closestReefTag);
-
-    Logger.recordOutput(NTPrefixes.CORAL_DATA + "Coral Setpoint", autoAlignCoralSetpoint);
-    Logger.recordOutput(NTPrefixes.CORAL_DATA + "Coral Setpoint Error", distanceToCoralSetpoint);
-    Logger.recordOutput(NTPrefixes.CORAL_DATA + "At Coral Setpoint", atCoralSetpoint);
-
-    Logger.recordOutput(NTPrefixes.ALGAE_DATA + "Algae Setpoint", autoAlignAlgaeSetpoint);
-    Logger.recordOutput(NTPrefixes.ALGAE_DATA + "Algae Setpoint Error", distanceToAlgaeSetpoint);
-    Logger.recordOutput(NTPrefixes.ALGAE_DATA + "At Algae Setpoint", atAlgaeSetpoint);
-    Logger.recordOutput(NTPrefixes.ALGAE_DATA + "Algae Height", algaeHeight);
+    fusedPoseBuffer.addSample(timestampSeconds, fieldLocalizer.getEstimatedPosition());
   }
 
-  public static Pose2d getRobotPoseField() {
+  // ============================================================
+  // Vision
+  // ============================================================
+
+  public synchronized void addFieldVisionMeasurement(
+      Pose2d visionPose, double timestampSeconds, Matrix<N3, N1> stdDevs) {
+    fieldLocalizer.addVisionMeasurement(visionPose, timestampSeconds, stdDevs);
+  }
+
+  public synchronized void addFieldVisionMeasurement(
+      Pose2d visionPose, double timestampSeconds, double xyStdDev) {
+    fieldLocalizer.addVisionMeasurement(
+        visionPose,
+        timestampSeconds,
+        VecBuilder.fill(xyStdDev, xyStdDev, Double.POSITIVE_INFINITY));
+  }
+
+  public synchronized void addReefVisionMeasurement(
+      Pose2d visionPose, double timestampSeconds, Matrix<N3, N1> stdDevs) {
+    reefLocalizer.addVisionMeasurement(visionPose, timestampSeconds, stdDevs);
+  }
+
+  public synchronized void addReefVisionMeasurement(
+      Pose2d visionPose, double timestampSeconds, double xyStdDev) {
+    reefLocalizer.addVisionMeasurement(
+        visionPose,
+        timestampSeconds,
+        VecBuilder.fill(xyStdDev, xyStdDev, Double.POSITIVE_INFINITY));
+  }
+
+  // ============================================================
+  // Speeds
+  // ============================================================
+
+  public void setMeasuredRobotRelativeSpeeds(ChassisSpeeds speeds) {
+    measuredRobotRelSpeeds.set(speeds);
+    measuredFieldRelSpeeds.set(
+        ChassisSpeeds.fromRobotRelativeSpeeds(speeds, getRobotPoseField().getRotation()));
+  }
+
+  public void setMeasuredFieldRelativeSpeeds(ChassisSpeeds speeds) {
+    measuredFieldRelSpeeds.set(speeds);
+    measuredRobotRelSpeeds.set(
+        ChassisSpeeds.fromFieldRelativeSpeeds(speeds, getRobotPoseField().getRotation()));
+  }
+
+  public void setDesiredRobotRelativeSpeeds(ChassisSpeeds speeds) {
+    desiredRobotRelSpeeds.set(speeds);
+    desiredFieldRelSpeeds.set(
+        ChassisSpeeds.fromRobotRelativeSpeeds(speeds, getRobotPoseField().getRotation()));
+  }
+
+  public void setDesiredFieldRelativeSpeeds(ChassisSpeeds speeds) {
+    desiredFieldRelSpeeds.set(speeds);
+    desiredRobotRelSpeeds.set(
+        ChassisSpeeds.fromFieldRelativeSpeeds(speeds, getRobotPoseField().getRotation()));
+  }
+
+  public ChassisSpeeds getMeasuredRobotRelativeSpeeds() {
+    return measuredRobotRelSpeeds.get();
+  }
+
+  public ChassisSpeeds getMeasuredFieldRelativeSpeeds() {
+    return measuredFieldRelSpeeds.get();
+  }
+
+  public ChassisSpeeds getDesiredRobotRelativeSpeeds() {
+    return desiredRobotRelSpeeds.get();
+  }
+
+  public ChassisSpeeds getDesiredFieldRelativeSpeeds() {
+    return desiredFieldRelSpeeds.get();
+  }
+
+  // ============================================================
+  // Resets / Getters / Prediction
+  // ============================================================
+
+  /** Reset all estimators to a pose; preserves current wheel positions and raw gyro reading. */
+  public synchronized void resetRobotPose(Pose2d pose) {
+    headingOffset = pose.getRotation().minus(robotHeadingRaw);
+    yawWithOffset = robotHeadingRaw.plus(headingOffset);
+
+    fieldLocalizer.resetPosition(yawWithOffset, currentWheelPositions, pose);
+    reefLocalizer.resetPosition(yawWithOffset, currentWheelPositions, pose);
+    odometry.resetPosition(yawWithOffset, currentWheelPositions, pose);
+
+    fusedPoseBuffer.clear();
+    fusedPoseBuffer.addSample(Timer.getTimestamp(), pose);
+  }
+
+  public Pose2d getRobotPoseField() {
     return fieldLocalizer.getEstimatedPosition();
   }
 
-  public static Pose2d getRobotPoseReef() {
+  public Pose2d getRobotPoseReef() {
     return reefLocalizer.getEstimatedPosition();
   }
 
-  public static Pose2d getRobotPoseOdometry() {
+  public Pose2d getRobotPoseOdometry() {
     return odometry.getPoseMeters();
   }
 
-  private static int getMinDistanceReefTag() {
-    Pose2d reefFace = FieldConstants.getNearestReefFace(RobotState.getRobotPoseReef());
-    int minDistanceTag = List.of(FieldConstants.Reef.centerFaces).indexOf(reefFace);
-
-    if (AllianceFlipUtil.shouldFlip()) {
-      switch (minDistanceTag) {
-        case 0:
-          minDistanceTag = 7;
-          break;
-        case 1:
-          minDistanceTag = 6;
-          break;
-        case 2:
-          minDistanceTag = 11;
-          break;
-        case 3:
-          minDistanceTag = 10;
-          break;
-        case 4:
-          minDistanceTag = 9;
-          break;
-        case 5:
-          minDistanceTag = 8;
-          break;
-      }
-    } else {
-      switch (minDistanceTag) {
-        case 0:
-          minDistanceTag = 18;
-          break;
-        case 1:
-          minDistanceTag = 19;
-          break;
-        case 2:
-          minDistanceTag = 20;
-          break;
-        case 3:
-          minDistanceTag = 21;
-          break;
-        case 4:
-          minDistanceTag = 22;
-          break;
-        case 5:
-          minDistanceTag = 17;
-          break;
-      }
-    }
-    return minDistanceTag;
+  /** Get fused field pose at a prior timestamp. */
+  public Optional<Pose2d> getPoseAt(double timestampSeconds) {
+    return fusedPoseBuffer.getSample(timestampSeconds);
   }
 
-  public static void resetRobotPose(Pose2d pose) {
-    headingOffset = robotHeading.minus(pose.getRotation());
-    fieldLocalizer.resetPosition(robotHeading, modulePositions, pose);
-    reefLocalizer.resetPosition(robotHeading, modulePositions, pose);
-    odometry.resetPosition(robotHeading, modulePositions, pose);
+  public Rotation2d getYawForVision() {
+    return getRobotPoseField().getRotation();
   }
 
-  public static void setReefPost(ReefSide post) {
-    ElevatorPositions height = OIData.currentReefHeight();
-    OIData = new OperatorInputData(post, height);
+  /** Constant-velocity lookahead using measured robot-relative speeds. */
+  public Pose2d getPredictedPose(double lookaheadSeconds) {
+    Pose2d start = getRobotPoseField();
+    ChassisSpeeds vRobot = measuredRobotRelSpeeds.get();
+    var twist =
+        new edu.wpi.first.math.geometry.Twist2d(
+            vRobot.vxMetersPerSecond * lookaheadSeconds,
+            vRobot.vyMetersPerSecond * lookaheadSeconds,
+            vRobot.omegaRadiansPerSecond * lookaheadSeconds);
+    return start.exp(twist);
   }
 
-  public static void toggleReefPost() {
-    ElevatorPositions height = OIData.currentReefHeight();
-    if (OIData.currentReefPost().equals(ReefSide.LEFT)) {
-      OIData = new OperatorInputData(ReefSide.RIGHT, height);
-    } else {
-      OIData = new OperatorInputData(ReefSide.LEFT, height);
-    }
-  }
-
-  public static void setReefHeight(ElevatorPositions height) {
-    ReefSide post = OIData.currentReefPost();
-    OIData = new OperatorInputData(post, height);
-  }
-
-  public static final record ReefAlignData(
-      int closestReefTag,
-      Pose2d coralSetpoint,
-      Pose2d algaeSetpoint,
-      double distanceToCoralSetpoint,
-      double distanceToAlgaeSetpoint,
-      boolean atCoralSetpoint,
-      boolean atAlgaeSetpoint,
-      ElevatorPositions algaeIntakeHeight,
-      Camera... cameras) {}
-
-  public static final record OperatorInputData(
-      ReefSide currentReefPost, ElevatorPositions currentReefHeight) {}
-
-  public static final record RobotConfigurationData(
-      double intakeStart, Rotation2d armStart, double elevatorStart) {}
+  // ============================================================
+  // Types
+  // ============================================================
 
   public enum RobotMode {
     DISABLED,
@@ -521,19 +286,19 @@ public class RobotState {
     AUTO;
 
     public static boolean enabled(RobotMode mode) {
-      return mode.equals(TELEOP) || mode.equals(AUTO);
+      return mode == TELEOP || mode == AUTO;
     }
 
     public static boolean disabled(RobotMode mode) {
-      return mode.equals(DISABLED);
+      return mode == DISABLED;
     }
 
     public static boolean teleop(RobotMode mode) {
-      return mode.equals(TELEOP);
+      return mode == TELEOP;
     }
 
     public static boolean auto(RobotMode mode) {
-      return mode.equals(AUTO);
+      return mode == AUTO;
     }
 
     public static boolean enabled() {

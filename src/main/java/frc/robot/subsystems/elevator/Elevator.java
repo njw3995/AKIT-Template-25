@@ -15,7 +15,6 @@ import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
 import frc.robot.Robot;
-import frc.robot.RobotState;
 import frc.robot.subsystems.elevator.ElevatorConstants.ElevatorPositions;
 import frc.robot.subsystems.elevator.ElevatorIO.ElevatorIOInputs;
 import frc.robot.util.LoggedTracer;
@@ -61,10 +60,6 @@ public class Elevator {
     Logger.recordOutput("Elevator/Position", position.name());
 
     Logger.recordOutput("Elevator/Profile/SetpointPositionMeters", position.getPosition());
-
-    RobotState.getInstance()
-        .setElevatorExtensionPercent(
-            getPositionMeters(inputs) / ElevatorConstants.ELEVATOR_PARAMETERS.MAX_HEIGHT_METERS());
 
     LoggedTracer.record("Elevator");
   }

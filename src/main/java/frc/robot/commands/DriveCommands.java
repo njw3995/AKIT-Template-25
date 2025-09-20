@@ -1,10 +1,3 @@
-// Copyright (c) 2025 FRC 6328
-// http://github.com/Mechanical-Advantage
-//
-// Use of this source code is governed by an MIT-style
-// license that can be found in the LICENSE file at
-// the root directory of this project.
-
 package frc.robot.commands;
 
 import edu.wpi.first.math.MathUtil;
@@ -38,6 +31,8 @@ public class DriveCommands {
   private static final double ffRampRate = 0.1; // Volts/Sec
   private static final double wheelRadiusMaxVelocity = 0.25; // Rad/Sec
   private static final double wheelRadiusRampRate = 0.05; // Rad/Sec^2
+
+  // If you later wire elevator extension into commands, keep these tunables:
   private static final LoggedTunableNumber elevatorMinExtension =
       new LoggedTunableNumber("DriveCommands/ElevatorMinExtension", 0.4);
   private static final LoggedTunableNumber maxExtensionAngularVelocityScalar =
@@ -46,14 +41,9 @@ public class DriveCommands {
   private DriveCommands() {}
 
   public static Translation2d getLinearVelocityFromJoysticks(double x, double y) {
-    // Apply deadband
     double linearMagnitude = MathUtil.applyDeadband(Math.hypot(x, y), deadband);
     Rotation2d linearDirection = new Rotation2d(x, y);
-
-    // Square magnitude for more precise control
-    linearMagnitude = linearMagnitude * linearMagnitude;
-
-    // Return new linear velocity
+    linearMagnitude = linearMagnitude * linearMagnitude; // square for finesse
     return new Pose2d(Translation2d.kZero, linearDirection)
         .transformBy(new Transform2d(linearMagnitude, 0.0, Rotation2d.kZero))
         .getTranslation();
@@ -64,84 +54,90 @@ public class DriveCommands {
     return omega * omega * Math.signum(omega);
   }
 
+  /** Old helper preserved: assumes no elevator scaling. */
   public static ChassisSpeeds getSpeedsFromJoysticks(
       double driverX, double driverY, double driverOmega) {
-    // Get linear velocity
+    return getSpeedsFromJoysticks(driverX, driverY, driverOmega, () -> 0.0);
+  }
+
+  /** New helper that accepts elevator extension percent [0..1] to scale omega if desired. */
+  public static ChassisSpeeds getSpeedsFromJoysticks(
+      double driverX, double driverY, double driverOmega, DoubleSupplier elevatorExtensionPercent) {
     Translation2d linearVelocity =
         getLinearVelocityFromJoysticks(driverX, driverY).times(DriveConstants.maxLinearSpeed);
 
-    // Calculate angular velocity
-    double omega = getOmegaFromJoysticks(driverOmega);
+    double omegaNorm = getOmegaFromJoysticks(driverOmega);
+
+    // Angular scaling vs. extension
+    double ext = MathUtil.clamp(elevatorExtensionPercent.getAsDouble(), 0.0, 1.0);
+    double extNorm =
+        MathUtil.clamp(
+            (ext - elevatorMinExtension.get()) / Math.max(1e-9, (1.0 - elevatorMinExtension.get())),
+            0.0,
+            1.0);
+    double omegaScale =
+        MathUtil.interpolate(1.0, maxExtensionAngularVelocityScalar.get(), extNorm);
 
     return new ChassisSpeeds(
-        linearVelocity.getX(),
-        linearVelocity.getY(),
-        omega
-            * DriveConstants.maxAngularSpeed
-            * MathUtil.interpolate(
-                1.0,
-                maxExtensionAngularVelocityScalar.get(),
-                MathUtil.clamp(
-                    (RobotState.getInstance().getElevatorExtensionPercent()
-                            - elevatorMinExtension.get())
-                        / (1.0 - elevatorMinExtension.get()),
-                    0.0,
-                    1.0)));
+        linearVelocity.getX(), linearVelocity.getY(), omegaNorm * DriveConstants.maxAngularSpeed * omegaScale);
   }
 
-  /**
-   * Field or robot relative drive command using two joysticks (controlling linear and angular
-   * velocities).
-   */
+  /** Old command preserved: robotRelative only, no elevator scaling. */
   public static Command joystickDrive(
       Drive drive,
       DoubleSupplier xSupplier,
       DoubleSupplier ySupplier,
       DoubleSupplier omegaSupplier,
       BooleanSupplier robotRelative) {
+    return joystickDrive(drive, xSupplier, ySupplier, omegaSupplier, robotRelative, () -> 0.0);
+  }
+
+  /** New command that includes elevator extension scaling hook. */
+  public static Command joystickDrive(
+      Drive drive,
+      DoubleSupplier xSupplier,
+      DoubleSupplier ySupplier,
+      DoubleSupplier omegaSupplier,
+      BooleanSupplier robotRelative,
+      DoubleSupplier elevatorExtensionPercent) {
     return Commands.run(
         () -> {
           ChassisSpeeds speeds =
               getSpeedsFromJoysticks(
-                  xSupplier.getAsDouble(), ySupplier.getAsDouble(), omegaSupplier.getAsDouble());
+                  xSupplier.getAsDouble(),
+                  ySupplier.getAsDouble(),
+                  omegaSupplier.getAsDouble(),
+                  elevatorExtensionPercent);
+
+          var fieldRot = RobotState.getInstance().getRobotPoseField().getRotation();
+          // Red alliance flips field frame
+          if (DriverStation.getAlliance().isPresent()
+              && DriverStation.getAlliance().get() == Alliance.Red) {
+            fieldRot = fieldRot.plus(Rotation2d.kPi);
+          }
+
           drive.runVelocity(
               robotRelative.getAsBoolean()
                   ? speeds
-                  : ChassisSpeeds.fromFieldRelativeSpeeds(
-                      speeds,
-                      DriverStation.getAlliance().isPresent()
-                              && DriverStation.getAlliance().get() == Alliance.Red
-                          ? RobotState.getRobotPoseField().getRotation().plus(Rotation2d.kPi)
-                          : RobotState.getRobotPoseField().getRotation()));
+                  : ChassisSpeeds.fromFieldRelativeSpeeds(speeds, fieldRot));
         },
         drive);
   }
 
-  /**
-   * Measures the velocity feedforward constants for the drive motors.
-   *
-   * <p>This command should only be used in voltage control mode.
-   */
+  /** Measures the velocity feedforward constants for the drive motors. */
   public static Command feedforwardCharacterization(Drive drive) {
     List<Double> velocitySamples = new LinkedList<>();
     List<Double> voltageSamples = new LinkedList<>();
     Timer timer = new Timer();
 
     return Commands.sequence(
-        // Reset data
         Commands.runOnce(
             () -> {
               velocitySamples.clear();
               voltageSamples.clear();
             }),
-
-        // Allow modules to orient
         Commands.run(() -> drive.runCharacterization(0.0), drive).withTimeout(ffStartDelay),
-
-        // Start timer
         Commands.runOnce(timer::restart),
-
-        // Accelerate and gather data
         Commands.run(
                 () -> {
                   double voltage = timer.get() * ffRampRate;
@@ -150,20 +146,17 @@ public class DriveCommands {
                   voltageSamples.add(voltage);
                 },
                 drive)
-
-            // When cancelled, calculate and print results
             .finallyDo(
                 () -> {
                   int n = velocitySamples.size();
-                  double sumX = 0.0;
-                  double sumY = 0.0;
-                  double sumXY = 0.0;
-                  double sumX2 = 0.0;
+                  double sumX = 0.0, sumY = 0.0, sumXY = 0.0, sumX2 = 0.0;
                   for (int i = 0; i < n; i++) {
-                    sumX += velocitySamples.get(i);
-                    sumY += voltageSamples.get(i);
-                    sumXY += velocitySamples.get(i) * voltageSamples.get(i);
-                    sumX2 += velocitySamples.get(i) * velocitySamples.get(i);
+                    double x = velocitySamples.get(i);
+                    double y = voltageSamples.get(i);
+                    sumX += x;
+                    sumY += y;
+                    sumXY += x * y;
+                    sumX2 += x * x;
                   }
                   double kS = (sumY * sumX2 - sumX * sumXY) / (n * sumX2 - sumX * sumX);
                   double kV = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
@@ -181,33 +174,22 @@ public class DriveCommands {
     WheelRadiusCharacterizationState state = new WheelRadiusCharacterizationState();
 
     return Commands.parallel(
-        // Drive control sequence
         Commands.sequence(
-            // Reset acceleration limiter
             Commands.runOnce(() -> limiter.reset(0.0)),
-
-            // Turn in place, accelerating up to full speed
             Commands.run(
                 () -> {
                   double speed = limiter.calculate(wheelRadiusMaxVelocity);
                   drive.runVelocity(new ChassisSpeeds(0.0, 0.0, speed));
                 },
                 drive)),
-
-        // Measurement sequence
         Commands.sequence(
-            // Wait for modules to fully orient before starting measurement
             Commands.waitSeconds(1.0),
-
-            // Record starting measurement
             Commands.runOnce(
                 () -> {
                   state.positions = drive.getWheelRadiusCharacterizationPositions();
                   state.lastAngle = drive.getGyroRotation();
                   state.gyroDelta = 0.0;
                 }),
-
-            // Update gyro delta
             Commands.run(
                     () -> {
                       var rotation = drive.getGyroRotation();
@@ -225,8 +207,6 @@ public class DriveCommands {
                       Logger.recordOutput("Drive/WheelDelta", wheelDelta);
                       Logger.recordOutput("Drive/WheelRadius", wheelRadius);
                     })
-
-                // When cancelled, calculate and print results
                 .finallyDo(
                     () -> {
                       double[] positions = drive.getWheelRadiusCharacterizationPositions();
@@ -237,7 +217,8 @@ public class DriveCommands {
                       double wheelRadius =
                           (state.gyroDelta * DriveConstants.driveBaseRadius) / wheelDelta;
 
-                      NumberFormat formatter = new DecimalFormat("#0.000000000000000000000000000");
+                      NumberFormat formatter =
+                          new DecimalFormat("#0.000000000000000000000000000");
                       System.out.println(
                           "********** Wheel Radius Characterization Results **********");
                       System.out.println(

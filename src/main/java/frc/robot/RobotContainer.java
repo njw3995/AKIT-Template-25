@@ -82,6 +82,8 @@ public class RobotContainer {
         break;
     }
 
+    vision.setYawSupplier(drive::getGyroRotation);
+
     // Set up auto routines
     autoChooser = new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser());
 

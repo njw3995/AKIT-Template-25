@@ -33,6 +33,7 @@ import frc.robot.util.swerve.SwerveSetpoint;
 import frc.robot.util.swerve.SwerveSetpointGenerator;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import lombok.Setter;
@@ -131,57 +132,66 @@ public class Drive extends SubsystemBase {
       Logger.recordOutput("Drive/SwerveStates/SetpointsUnoptimized", new SwerveModuleState[] {});
     }
 
-    // Send odometry updates to robot state
+    // --- Send odometry updates to RobotState ---
+    final boolean isSim = (Constants.getMode() == Mode.SIM);
+
+    // Timestamps + yaw samples are aligned when coming from PhoenixOdometryThread on real
     double[] sampleTimestamps =
-        Constants.getMode() == Mode.SIM
-            ? new double[] {Timer.getTimestamp()}
-            : gyroInputs.odometryYawTimestamps; // All signals are sampled together
+        isSim ? new double[] {Timer.getTimestamp()} : gyroInputs.odometryYawTimestamps;
+    Rotation2d[] yawSamples =
+        isSim ? new Rotation2d[] {gyroInputs.data.yawPosition()} : gyroInputs.odometryYawPositions;
+
     int sampleCount = sampleTimestamps.length;
     for (int i = 0; i < sampleCount; i++) {
+      // Wheel positions aligned to the same sampling as yaw
       SwerveModulePosition[] wheelPositions = new SwerveModulePosition[4];
       for (int j = 0; j < 4; j++) {
         wheelPositions[j] = modules[j].getOdometryPositions()[i];
       }
 
-      // Log 3D robot pose
-      Logger.recordOutput(
-          "RobotState/EstimatedPose3d",
-          new Pose3d(RobotState.getRobotPoseOdometry())
-              .exp(
-                  new Twist3d(
-                      0.0,
-                      0.0,
-                      Math.abs(gyroInputs.data.pitchPosition().getRadians())
-                          * DriveConstants.trackWidthX
-                          / 2.0,
-                      0.0,
-                      gyroInputs.data.pitchPosition().getRadians(),
-                      0.0))
-              .exp(
-                  new Twist3d(
-                      0.0,
-                      0.0,
-                      Math.abs(gyroInputs.data.rollPosition().getRadians())
-                          * DriveConstants.trackWidthY
-                          / 2.0,
-                      gyroInputs.data.rollPosition().getRadians(),
-                      0.0,
-                      0.0)));
+      // Provide yaw when we have a valid gyro; otherwise let RobotState integrate heading from wheels
+      Optional<Rotation2d> yawOpt =
+          gyroInputs.data.connected() ? Optional.of(yawSamples[i]) : Optional.empty();
+
+      RobotState.getInstance()
+          .addOdometryObservation(sampleTimestamps[i], wheelPositions, yawOpt);
     }
 
+    // Log 3D robot pose (optional visualization)
+    Logger.recordOutput(
+        "RobotState/EstimatedPose3d",
+        new Pose3d(RobotState.getInstance().getRobotPoseOdometry())
+            .exp(
+                new Twist3d(
+                    0.0,
+                    0.0,
+                    Math.abs(gyroInputs.data.pitchPosition().getRadians())
+                        * DriveConstants.trackWidthX
+                        / 2.0,
+                    0.0,
+                    gyroInputs.data.pitchPosition().getRadians(),
+                    0.0))
+            .exp(
+                new Twist3d(
+                    0.0,
+                    0.0,
+                    Math.abs(gyroInputs.data.rollPosition().getRadians())
+                        * DriveConstants.trackWidthY
+                        / 2.0,
+                    gyroInputs.data.rollPosition().getRadians(),
+                    0.0,
+                    0.0)));
+
     // Update brake mode
-    // Reset movement timer if velocity above threshold
     if (Arrays.stream(modules)
         .anyMatch(
             (module) ->
                 Math.abs(module.getVelocityMetersPerSec()) > coastMetersPerSecondThreshold.get())) {
       lastMovementTimer.reset();
     }
-
     if (DriverStation.isEnabled()) {
       coastRequest = CoastRequest.ALWAYS_BRAKE;
     }
-
     switch (coastRequest) {
       case AUTOMATIC -> {
         if (DriverStation.isEnabled()) {
@@ -190,18 +200,17 @@ public class Drive extends SubsystemBase {
           setBrakeMode(false);
         }
       }
-      case ALWAYS_BRAKE -> {
-        setBrakeMode(true);
-      }
-      case ALWAYS_COAST -> {
-        setBrakeMode(false);
-      }
+      case ALWAYS_BRAKE -> setBrakeMode(true);
+      case ALWAYS_COAST -> setBrakeMode(false);
     }
 
     // Update current setpoint if not in velocity mode
     if (!velocityMode) {
       currentSetpoint = new SwerveSetpoint(getChassisSpeeds(), getModuleStates());
     }
+
+    // Feed measured speeds to RobotState (for prediction helpers)
+    RobotState.getInstance().setMeasuredRobotRelativeSpeeds(getChassisSpeeds());
 
     // Update gyro alert
     gyroDisconnectedAlert.set(

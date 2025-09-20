@@ -10,6 +10,10 @@ import java.util.List;
 import lombok.Getter;
 import org.littletonrobotics.junction.Logger;
 
+/**
+ * Thin wrapper around a {@link CameraIO} implementation that holds static config and exposes
+ * per-loop inputs via AdvantageKit.
+ */
 public class Camera {
   private final CameraIOInputsAutoLogged inputs;
 
@@ -24,6 +28,20 @@ public class Camera {
   @Getter private final DoubleArrayPublisher robotHeadingPublisher;
   @Getter private final List<CameraDuty> cameraDuties;
 
+  @Getter private Vision.VisionEstimationMode visionMode = Vision.VisionEstimationMode.MT1;
+
+  /**
+   * Constructs a camera with a fixed transform and duties.
+   *
+   * @param io hardware IO implementation
+   * @param horizontalFOV horizontal field of view (radians)
+   * @param verticalFOV vertical field of view (radians)
+   * @param primaryXYStandardDeviationCoefficient std-dev model coefficient for primary pose
+   * @param secondaryXYStandardDeviationCoefficient std-dev model coefficient for secondary pose
+   * @param robotHeadingPublisher NT publisher for robot yaw (used by MT2)
+   * @param cameraDuties functional roles for this camera
+   * @param offset camera-to-robot transform
+   */
   public Camera(
       CameraIO io,
       double horizontalFOV,
@@ -47,6 +65,18 @@ public class Camera {
     this.cameraDuties = cameraDuties;
   }
 
+  /**
+   * Constructs a camera without an explicit transform (defaults to identity).
+   *
+   * @param io hardware IO implementation
+   * @param name display name
+   * @param horizontalFOV horizontal field of view (radians)
+   * @param verticalFOV vertical field of view (radians)
+   * @param primaryXYStandardDeviationCoefficient std-dev model coefficient for primary pose
+   * @param secondaryXYStandardDeviationCoefficient std-dev model coefficient for secondary pose
+   * @param robotHeadingPublisher NT publisher for robot yaw (used by MT2)
+   * @param cameraDuties functional roles for this camera
+   */
   public Camera(
       CameraIO io,
       String name,
@@ -69,58 +99,114 @@ public class Camera {
     this.cameraDuties = cameraDuties;
   }
 
+  /** Pulls fresh inputs from the IO and logs them. Call once per loop. */
   public void periodic() {
     io.updateInputs(inputs);
-
     Logger.processInputs("Vision/Cameras/" + name, inputs);
-    LoggedTracer.record("Camera");
+    LoggedTracer.record("Camera/" + name);
   }
 
+  /**
+   * Sets the per-camera processing mode (MT1/MT2/SingleTagGyro/TxTyTa).
+   *
+   * @param mode mode to use for this camera
+   */
+  public void setVisionMode(Vision.VisionEstimationMode mode) {
+    this.visionMode = mode;
+  }
+
+  /**
+   * @return latest tx wrapped as {@link Rotation2d}
+   */
   public Rotation2d getXOffset() {
-    return inputs.xOffset;
+    return inputs.data.xOffset();
   }
 
+  /**
+   * @return latest ty wrapped as {@link Rotation2d}
+   */
   public Rotation2d getYOffset() {
-    return inputs.yOffset;
+    return inputs.data.yOffset();
   }
 
+  /**
+   * @return whether a target is currently detected
+   */
   public boolean getTargetAquired() {
-    return inputs.targetAquired;
+    return inputs.data.targetAquired();
   }
 
+  /**
+   * @return number of detected targets
+   */
   public int getTotalTargets() {
-    return inputs.totalTargets;
+    return inputs.data.totalTargets();
   }
 
+  /**
+   * @return average measured distance to tags (meters)
+   */
   public double getAverageDistance() {
-    return inputs.averageDistance;
+    return inputs.data.averageDistance();
   }
 
+  /**
+   * @return capture timestamp (seconds)
+   */
   public double getFrameTimestamp() {
-    return inputs.frameTimestamp;
+    return inputs.data.frameTimestamp();
   }
 
+  /**
+   * @return primary pose estimate from the IO (e.g., MT2)
+   */
   public Pose2d getPrimaryPose() {
-    return inputs.primaryPose;
+    return inputs.data.primaryPose();
   }
 
+  /**
+   * @return secondary pose estimate from the IO (e.g., MT1)
+   */
   public Pose2d getSecondaryPose() {
-    return inputs.secondaryPose;
+    return inputs.data.secondaryPose();
   }
 
+  /**
+   * @return last seen fiducial ID, or -1 if unknown
+   */
   public double getTagIDOfInterest() {
-    return inputs.tagIDOfInterest;
+    return inputs.data.tagIDOfInterest();
   }
 
+  /**
+   * @return true if the IO reports camera is connected
+   */
   public boolean getIsConnected() {
-    return inputs.isConnected;
+    return inputs.data.isConnected();
   }
 
+  /**
+   * Sets the device pipeline.
+   *
+   * @param pipeline pipeline index
+   */
   public void setPipeline(int pipeline) {
     io.setPipeline(pipeline);
   }
 
+  /**
+   * Restricts the set of valid AprilTag IDs used by the device for localization.
+   *
+   * @param validIds list of allowed IDs
+   */
   public void setValidTags(int... validIds) {
     io.setValidTags(validIds);
+  }
+
+  /**
+   * @return underlying IO implementation (for advanced control)
+   */
+  public CameraIO getIo() {
+    return io;
   }
 }
