@@ -23,32 +23,28 @@ public class WristIOSim implements WristIO {
     wristSim =
         new SingleJointedArmSim(
             LinearSystemId.createSingleJointedArmSystem(
-                WristConstants.WRIST_PARAMETERS.MOTOR_CONFIG(),
-                0.004,
-                WristConstants.WRIST_PARAMETERS.GEARING()),
-            WristConstants.WRIST_PARAMETERS.MOTOR_CONFIG(),
-            WristConstants.WRIST_PARAMETERS.GEARING(),
-            WristConstants.WRIST_PARAMETERS.LENGTH_METERS(),
-            WristConstants.WRIST_PARAMETERS.MIN_ANGLE().getRadians(),
-            WristConstants.WRIST_PARAMETERS.MAX_ANGLE().getRadians(),
+                WristConstants.MOTOR_MODEL, // motor
+                0.004, // moment of inertia (kg*m^2) – tune as needed
+                WristConstants.GEARING),
+            WristConstants.MOTOR_MODEL,
+            WristConstants.GEARING,
+            WristConstants.LENGTH_METERS,
+            WristConstants.MIN_ANGLE.getRadians(),
+            WristConstants.MAX_ANGLE.getRadians(),
             true,
-            WristConstants.WRIST_PARAMETERS.MIN_ANGLE().getRadians());
+            WristConstants.MIN_ANGLE.getRadians());
 
     wristAppliedVolts = 0.0;
 
     feedback =
         new ProfiledPIDController(
-            WristConstants.WITHOUT_ALGAE_GAINS.kP().get(),
+            WristConstants.S0_kP,
             0.0,
-            WristConstants.WITHOUT_ALGAE_GAINS.kD().get(),
-            new Constraints(
-                WristConstants.CONSTRAINTS.CRUISING_VELOCITY_ROTATIONS_PER_SECOND().get(),
-                WristConstants.CONSTRAINTS.MAX_ACCELERATION_ROTATIONS_PER_SECOND_SQUARED().get()));
+            WristConstants.S0_kD,
+            new Constraints(WristConstants.CRUISE_VEL_RPS, WristConstants.MAX_ACCEL_RPS2));
+
     feedforward =
-        new ArmFeedforward(
-            WristConstants.WITHOUT_ALGAE_GAINS.kS().get(),
-            WristConstants.WITHOUT_ALGAE_GAINS.kV().get(),
-            WristConstants.WITHOUT_ALGAE_GAINS.kA().get());
+        new ArmFeedforward(WristConstants.S0_kS, WristConstants.S0_kG, WristConstants.S0_kV);
 
     wristClosedLoop = true;
   }
@@ -70,6 +66,7 @@ public class WristIOSim implements WristIO {
         new WristIOData(
             // Exclude torque-current b/c it's running at a much higher update rate
             true,
+            false,
             wristSim.getAngleRads(),
             wristSim.getVelocityRadPerSec(),
             wristAppliedVolts,

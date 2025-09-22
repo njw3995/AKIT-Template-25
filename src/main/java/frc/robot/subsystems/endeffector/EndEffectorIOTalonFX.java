@@ -10,8 +10,6 @@ import com.ctre.phoenix6.controls.NeutralOut;
 import com.ctre.phoenix6.controls.TorqueCurrentFOC;
 import com.ctre.phoenix6.controls.VoltageOut;
 import com.ctre.phoenix6.hardware.TalonFX;
-import com.ctre.phoenix6.signals.InvertedValue;
-import com.ctre.phoenix6.signals.NeutralModeValue;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularVelocity;
@@ -20,7 +18,6 @@ import edu.wpi.first.units.measure.Temperature;
 import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj.DigitalInput;
 import frc.robot.Constants;
-import frc.robot.Constants.MotorConstants.KrakenConstants;
 import frc.robot.util.PhoenixUtil;
 
 public class EndEffectorIOTalonFX implements EndEffectorIO {
@@ -50,22 +47,8 @@ public class EndEffectorIOTalonFX implements EndEffectorIO {
     placementCoralBeamBreak =
         new DigitalInput(Constants.DIOPorts.END_EFFECTOR_PLACEMENT_CORAL_BEAM_BREAK_DIO_PORT);
 
-    TalonFXConfiguration config = new TalonFXConfiguration();
-    config.MotorOutput.Inverted =
-        EndEffectorConstants.IS_INVERTED
-            ? InvertedValue.Clockwise_Positive
-            : InvertedValue.CounterClockwise_Positive;
-    config.MotorOutput.NeutralMode =
-        EndEffectorConstants.IS_BRAKE ? NeutralModeValue.Brake : NeutralModeValue.Coast;
-    config.CurrentLimits.SupplyCurrentLimit = EndEffectorConstants.SUPPLY_CURRENT_LIMIT;
-    config.CurrentLimits.SupplyCurrentLimitEnable = EndEffectorConstants.USE_SUPPLY_CURRENT_LIMIT;
-    config.CurrentLimits.StatorCurrentLimit = EndEffectorConstants.STATOR_CURRENT_LIMIT;
-    config.CurrentLimits.StatorCurrentLimitEnable = EndEffectorConstants.USE_STATOR_CURRENT_LIMIT;
-
-    config.Feedback.SensorToMechanismRatio = EndEffectorConstants.GEARING;
-    config.Voltage.SupplyVoltageTimeConstant = KrakenConstants.SUPPLY_VOLTAGE_TIME;
-
-    tryUntilOk(5, () -> motor.getConfigurator().apply(config));
+    TalonFXConfiguration config = EndEffectorConstants.MOTOR_CONFIG;
+    tryUntilOk(5, () -> motor.getConfigurator().apply(config, 0.25));
 
     position = motor.getPosition();
     velocity = motor.getVelocity();

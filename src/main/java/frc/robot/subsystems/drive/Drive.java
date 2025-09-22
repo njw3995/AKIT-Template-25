@@ -149,12 +149,12 @@ public class Drive extends SubsystemBase {
         wheelPositions[j] = modules[j].getOdometryPositions()[i];
       }
 
-      // Provide yaw when we have a valid gyro; otherwise let RobotState integrate heading from wheels
+      // Provide yaw when we have a valid gyro; otherwise let RobotState integrate heading from
+      // wheels
       Optional<Rotation2d> yawOpt =
           gyroInputs.data.connected() ? Optional.of(yawSamples[i]) : Optional.empty();
 
-      RobotState.getInstance()
-          .addOdometryObservation(sampleTimestamps[i], wheelPositions, yawOpt);
+      RobotState.getInstance().addOdometryObservation(sampleTimestamps[i], wheelPositions, yawOpt);
     }
 
     // Log 3D robot pose (optional visualization)

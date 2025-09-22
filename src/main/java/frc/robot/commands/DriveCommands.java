@@ -75,11 +75,12 @@ public class DriveCommands {
             (ext - elevatorMinExtension.get()) / Math.max(1e-9, (1.0 - elevatorMinExtension.get())),
             0.0,
             1.0);
-    double omegaScale =
-        MathUtil.interpolate(1.0, maxExtensionAngularVelocityScalar.get(), extNorm);
+    double omegaScale = MathUtil.interpolate(1.0, maxExtensionAngularVelocityScalar.get(), extNorm);
 
     return new ChassisSpeeds(
-        linearVelocity.getX(), linearVelocity.getY(), omegaNorm * DriveConstants.maxAngularSpeed * omegaScale);
+        linearVelocity.getX(),
+        linearVelocity.getY(),
+        omegaNorm * DriveConstants.maxAngularSpeed * omegaScale);
   }
 
   /** Old command preserved: robotRelative only, no elevator scaling. */
@@ -217,8 +218,7 @@ public class DriveCommands {
                       double wheelRadius =
                           (state.gyroDelta * DriveConstants.driveBaseRadius) / wheelDelta;
 
-                      NumberFormat formatter =
-                          new DecimalFormat("#0.000000000000000000000000000");
+                      NumberFormat formatter = new DecimalFormat("#0.000000000000000000000000000");
                       System.out.println(
                           "********** Wheel Radius Characterization Results **********");
                       System.out.println(

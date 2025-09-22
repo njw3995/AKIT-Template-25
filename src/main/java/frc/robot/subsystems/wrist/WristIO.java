@@ -3,11 +3,14 @@ package frc.robot.subsystems.wrist;
 import edu.wpi.first.math.geometry.Rotation2d;
 import org.littletonrobotics.junction.AutoLog;
 
+import com.ctre.phoenix6.signals.NeutralModeValue;
+
 public interface WristIO {
   @AutoLog
   class WristIOInputs {
     public WristIOData data =
         new WristIOData(
+            false,
             false,
             0.0,
             0.0,
@@ -22,6 +25,7 @@ public interface WristIO {
 
   record WristIOData(
       boolean motorConnected,
+      boolean tempFault,
       double positionRad,
       double velocityRadPerSec,
       double appliedVolts,
@@ -80,4 +84,6 @@ public interface WristIO {
   public default void zeroWristPosition() {}
 
   public default void wristMax() {}
+
+  public default void setNeutralMode(NeutralModeValue mode) {}
 }

@@ -2,6 +2,8 @@ package frc.robot.subsystems.elevator;
 
 import static frc.robot.util.PhoenixUtil.tryUntilOk;
 
+import org.littletonrobotics.junction.Logger;
+
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
@@ -14,204 +16,163 @@ import com.ctre.phoenix6.signals.GravityTypeValue;
 import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
 import edu.wpi.first.units.measure.*;
+import edu.wpi.first.wpilibj.DigitalInput;
 import frc.robot.Constants;
-import frc.robot.Constants.MotorConstants.KrakenConstants;
 import frc.robot.util.PhoenixUtil;
 
 public class ElevatorIOTalonFX implements ElevatorIO {
 
   // Hardware
   private final TalonFX motor;
-  private final TalonFX followerMotor;
+  private final TalonFX follower;
+  private final DigitalInput zeroSwitch;
+  private final DigitalInput lowerLimit;
 
-  // Config
-  private final TalonFXConfiguration config = new TalonFXConfiguration();
+  // Config (start from constants’ MOTOR_CONFIG and keep a live copy for updates)
+  private final TalonFXConfiguration liveCfg = new TalonFXConfiguration();
 
   // Status Signals
-  private final StatusSignal<Angle> position;
-  private final StatusSignal<AngularVelocity> velocity;
+  private final StatusSignal<Angle> rotorPos;
+  private final StatusSignal<AngularVelocity> rotorVel;
   private final StatusSignal<Voltage> appliedVolts;
   private final StatusSignal<Current> torqueCurrent;
   private final StatusSignal<Current> supplyCurrent;
-  private final StatusSignal<Temperature> temp;
-  private final StatusSignal<Voltage> followerAppliedVolts;
-  private final StatusSignal<Current> followerTorqueCurrent;
-  private final StatusSignal<Current> followerSupplyCurrent;
+  private final StatusSignal<Temperature> motorTemp;
   private final StatusSignal<Temperature> followerTemp;
-  private StatusSignal<Double> positionSetpointRotations;
-  private StatusSignal<Double> positionErrorRotations;
+  private final StatusSignal<Boolean> leaderTempFault;
+  private final StatusSignal<Boolean> followerTempFault;
+  private final StatusSignal<Double> positionSetpointRot;
+  private final StatusSignal<Double> positionErrorRot;
 
-  private double positionGoalMeters;
-
-  private MotionMagicVoltage positionVoltageRequest =
+  private final MotionMagicVoltage positionVoltageRequest =
       new MotionMagicVoltage(0).withUpdateFreqHz(0.0).withEnableFOC(true);
   private final VoltageOut voltageRequest = new VoltageOut(0.0).withUpdateFreqHz(0.0);
 
   public ElevatorIOTalonFX() {
     motor = new TalonFX(Constants.CanIDS.ELEVATOR_LEADER_CAN_ID, "Mechanisms");
-    followerMotor = new TalonFX(Constants.CanIDS.ELEVATOR_FOLLOWER_CAN_ID, "Mechanisms");
-    followerMotor.setControl(new Follower(motor.getDeviceID(), true));
+    follower = new TalonFX(Constants.CanIDS.ELEVATOR_FOLLOWER_CAN_ID, "Mechanisms");
+    zeroSwitch = new DigitalInput(Constants.DIOPorts.ELEVATOR_ZERO_LIMIT_DIO_PORT);
+    lowerLimit = new DigitalInput(Constants.DIOPorts.ELEVATOR_LOWER_LIMIT_DIO_PORT);
+    follower.setControl(new Follower(motor.getDeviceID(), true));
 
-    // Configure motor
-    config.Slot0.kP = ElevatorConstants.GAINS.kP().get();
-    config.Slot0.kD = ElevatorConstants.GAINS.kD().get();
-    config.Slot0.kS = ElevatorConstants.GAINS.kS().get();
-    config.Slot0.kV = ElevatorConstants.GAINS.kV().get();
-    config.Slot0.kA = ElevatorConstants.GAINS.kA().get();
-    config.Slot0.kG = ElevatorConstants.GAINS.kG().get();
-    config.Slot0.GravityType = GravityTypeValue.Elevator_Static;
+    // Apply baseline config from constants (parity with Wrist/EndEffector)
+    tryUntilOk(5, () -> motor.getConfigurator().apply(ElevatorConstants.MOTOR_CONFIG, 0.25));
+    tryUntilOk(5, () -> follower.getConfigurator().apply(ElevatorConstants.MOTOR_CONFIG, 0.25));
 
-    config.Slot1.kP = ElevatorConstants.STOW_GAINS.kP().get();
-    config.Slot1.kD = ElevatorConstants.STOW_GAINS.kD().get();
-    config.Slot1.kS = ElevatorConstants.STOW_GAINS.kS().get();
-    config.Slot1.kV = ElevatorConstants.STOW_GAINS.kV().get();
-    config.Slot1.kA = ElevatorConstants.STOW_GAINS.kA().get();
-    config.Slot1.kG = ElevatorConstants.STOW_GAINS.kG().get();
-    config.Slot1.GravityType = GravityTypeValue.Elevator_Static;
-
-    config.MotorOutput.NeutralMode =
-        ElevatorConstants.IS_BRAKE ? NeutralModeValue.Brake : NeutralModeValue.Coast;
-    config.Feedback.SensorToMechanismRatio = ElevatorConstants.GEARING;
-    config.Voltage.SupplyVoltageTimeConstant = KrakenConstants.SUPPLY_VOLTAGE_TIME;
-
-    config.CurrentLimits.SupplyCurrentLimit = ElevatorConstants.SUPPLY_CURRENT_LIMIT;
-    config.CurrentLimits.SupplyCurrentLimitEnable = ElevatorConstants.USE_SUPPLY_CURRENT_LIMIT;
-    config.CurrentLimits.SupplyCurrentLowerLimit = ElevatorConstants.SUPPLY_LOWER_CURRENT_LIMIT;
-    config.CurrentLimits.SupplyCurrentLowerTime =
-        ElevatorConstants.USE_SUPPLY_LOWER_CURRENT_LIMIT
-            ? ElevatorConstants.SUPPLY_CURRENT_LIMIT_TIMEOUT
-            : 0;
-    config.MotorOutput.Inverted =
-        ElevatorConstants.IS_INVERTED
-            ? InvertedValue.Clockwise_Positive
-            : InvertedValue.CounterClockwise_Positive;
-    tryUntilOk(5, () -> motor.getConfigurator().apply(config, 0.25));
-
-    position = motor.getPosition();
-    velocity = motor.getVelocity();
+    rotorPos = motor.getPosition();
+    rotorVel = motor.getVelocity();
     appliedVolts = motor.getMotorVoltage();
     torqueCurrent = motor.getTorqueCurrent();
     supplyCurrent = motor.getSupplyCurrent();
-    temp = motor.getDeviceTemp();
-    followerAppliedVolts = followerMotor.getMotorVoltage();
-    followerTorqueCurrent = followerMotor.getTorqueCurrent();
-    followerSupplyCurrent = followerMotor.getSupplyCurrent();
-    followerTemp = followerMotor.getDeviceTemp();
-    positionGoalMeters = 0.0;
-    positionSetpointRotations = motor.getClosedLoopReference();
-    positionErrorRotations = motor.getClosedLoopError();
+    motorTemp = motor.getDeviceTemp();
+    followerTemp = follower.getDeviceTemp();
+    leaderTempFault = motor.getFault_DeviceTemp();
+    followerTempFault = follower.getFault_DeviceTemp();
+    positionSetpointRot = motor.getClosedLoopReference();
+    positionErrorRot = motor.getClosedLoopError();
 
     BaseStatusSignal.setUpdateFrequencyForAll(
-        50.0,
-        position,
-        velocity,
-        appliedVolts,
-        supplyCurrent,
-        temp,
-        followerAppliedVolts,
-        followerTorqueCurrent,
-        followerSupplyCurrent,
-        followerTemp,
-        positionSetpointRotations,
-        positionErrorRotations);
-    torqueCurrent.setUpdateFrequency(250);
-    ParentDevice.optimizeBusUtilizationForAll(motor, followerMotor);
+    50.0,
+      rotorPos, rotorVel, appliedVolts, supplyCurrent, motorTemp, followerTemp,
+      positionSetpointRot, positionErrorRot,
+      leaderTempFault, followerTempFault);
+    ParentDevice.optimizeBusUtilizationForAll(motor, follower);
 
-    // Register signals for refresh
     PhoenixUtil.registerSignals(
-        true,
-        position,
-        velocity,
-        appliedVolts,
-        torqueCurrent,
-        supplyCurrent,
-        temp,
-        followerAppliedVolts,
-        followerTorqueCurrent,
-        followerSupplyCurrent,
-        followerTemp);
+    true,
+    rotorPos, rotorVel, appliedVolts, torqueCurrent, supplyCurrent,
+    motorTemp, followerTemp,
+    leaderTempFault, followerTempFault);
   }
 
   @Override
   public void updateInputs(ElevatorIOInputs inputs) {
+    final double rot = rotorPos.getValueAsDouble();
+    final double rps = rotorVel.getValueAsDouble();
+
     inputs.data =
         new ElevatorIOData(
-            // Exclude torque-current b/c it's running at a much higher update rate
-            BaseStatusSignal.isAllGood(position, velocity, appliedVolts, supplyCurrent, temp),
-            BaseStatusSignal.isAllGood(
-                followerAppliedVolts, followerTorqueCurrent, followerSupplyCurrent, followerTemp),
-            position.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS,
-            velocity.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS,
+            BaseStatusSignal.isAllGood(rotorPos, rotorVel, appliedVolts, supplyCurrent, motorTemp),
+            BaseStatusSignal.isAllGood(followerTemp),
+            leaderTempFault.getValue(),
+            followerTempFault.getValue(),
+            !zeroSwitch.get(),
+            !lowerLimit.get(),
+            rot * ElevatorConstants.ROTATIONS_TO_METERS,
+            rps * ElevatorConstants.ROTATIONS_TO_METERS,
             appliedVolts.getValueAsDouble(),
             torqueCurrent.getValueAsDouble(),
             supplyCurrent.getValueAsDouble(),
-            temp.getValueAsDouble(),
-            followerAppliedVolts.getValueAsDouble(),
-            followerTorqueCurrent.getValueAsDouble(),
-            followerSupplyCurrent.getValueAsDouble(),
-            followerTemp.getValueAsDouble(),
-            positionGoalMeters,
-            positionSetpointRotations.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS,
-            positionErrorRotations.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS);
+            /* goal m */ positionSetpointRot.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS,
+            /* sp m   */ positionSetpointRot.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS,
+            /* err m  */ positionErrorRot.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS,
+            motorTemp.getValueAsDouble(),
+            followerTemp.getValueAsDouble());
   }
 
   @Override
-  public void setVoltage(double volts) {
+  public void setElevatorVoltage(double volts) {
     motor.setControl(voltageRequest.withOutput(volts).withEnableFOC(true));
   }
 
   @Override
-  public void setPosition(double meters) {
-    motor.setPosition(meters * ElevatorConstants.ROTATIONS_TO_METERS);
+  public void setElevatorPosition(double meters) {
+    final double rotations = meters / ElevatorConstants.ROTATIONS_TO_METERS;
+    final int slot = rotations > rotorPos.getValueAsDouble() ? 0 : 1;
+    motor.setControl(positionVoltageRequest.withPosition(rotations).withSlot(slot));
+    Logger.recordOutput("Elevator/ActiveSlot", slot);
   }
 
   @Override
-  public void setPositionGoal(double meters) {
-    positionGoalMeters = meters;
-    if (meters != 0.0) {
-      motor.setControl(
-          positionVoltageRequest
-              .withPosition(meters * ElevatorConstants.ROTATIONS_TO_METERS)
-              .withSlot(0));
-    } else {
-      motor.setControl(
-          positionVoltageRequest
-              .withPosition(meters * ElevatorConstants.ROTATIONS_TO_METERS)
-              .withSlot(1));
-    }
+  public void updateSlot0ElevatorGains(double kP, double kD, double kS, double kV, double kA, double kG) {
+    liveCfg.Slot0.kP = kP;
+    liveCfg.Slot0.kD = kD;
+    liveCfg.Slot0.kS = kS;
+    liveCfg.Slot0.kV = kV;
+    liveCfg.Slot0.kA = kA;
+    liveCfg.Slot0.kG = kG;
+    tryUntilOk(5, () -> motor.getConfigurator().apply(liveCfg));
+    tryUntilOk(5, () -> follower.getConfigurator().apply(liveCfg));
   }
 
   @Override
-  public void stop() {
-    motor.stopMotor();
+  public void updateSlot1ElevatorGains(double kP, double kD, double kS, double kV, double kA, double kG) {
+    liveCfg.Slot1.kP = kP;
+    liveCfg.Slot1.kD = kD;
+    liveCfg.Slot1.kS = kS;
+    liveCfg.Slot1.kV = kV;
+    liveCfg.Slot1.kA = kA;
+    liveCfg.Slot1.kG = kG;
+    tryUntilOk(5, () -> motor.getConfigurator().apply(liveCfg));
+    tryUntilOk(5, () -> follower.getConfigurator().apply(liveCfg));
   }
 
   @Override
-  public void updateGains(double kP, double kD, double kS, double kV, double kA, double kG) {
-    config.Slot0.kP = kP;
-    config.Slot0.kD = kD;
-    config.Slot0.kS = kS;
-    config.Slot0.kV = kV;
-    config.Slot0.kA = kA;
-    config.Slot0.kG = kG;
-    PhoenixUtil.tryUntilOk(5, () -> motor.getConfigurator().apply(config));
-    PhoenixUtil.tryUntilOk(5, () -> followerMotor.getConfigurator().apply(config));
+  public void updateElevatorConstraints(double maxAcceleration, double cruisingVelocity) {
+    // meters/sec -> mech rotations/sec (NOT rotor rps)
+    final double cruiseRps = cruisingVelocity / ElevatorConstants.SPROCKET_CIRCUMFERENCE_METERS;
+    final double accelRps2  = maxAcceleration / ElevatorConstants.SPROCKET_CIRCUMFERENCE_METERS;
+    liveCfg.MotionMagic.MotionMagicAcceleration = accelRps2;
+    liveCfg.MotionMagic.MotionMagicCruiseVelocity = cruiseRps;
+    tryUntilOk(5, () -> motor.getConfigurator().apply(liveCfg));
+    tryUntilOk(5, () -> follower.getConfigurator().apply(liveCfg));
   }
 
   @Override
-  public void updateConstraints(double maxAcceleration, double cruisingVelocity) {
-    config.MotionMagic.MotionMagicAcceleration =
-        maxAcceleration * ElevatorConstants.ROTATIONS_TO_METERS;
-    config.MotionMagic.MotionMagicCruiseVelocity =
-        cruisingVelocity * ElevatorConstants.ROTATIONS_TO_METERS;
-    PhoenixUtil.tryUntilOk(5, () -> motor.getConfigurator().apply(config));
-    PhoenixUtil.tryUntilOk(5, () -> followerMotor.getConfigurator().apply(config));
+  public void zeroElevatorPosition() {
+    // set to MIN height in rotor rotations space
+    final double minRot = ElevatorConstants.MIN_HEIGHT_METERS / ElevatorConstants.ROTATIONS_TO_METERS;
+    motor.setPosition(minRot);
   }
 
   @Override
-  public void setBrakeMode(boolean enabled) {
-    new Thread(
-            () -> motor.setNeutralMode(enabled ? NeutralModeValue.Brake : NeutralModeValue.Coast))
-        .start();
+  public void elevatorMax() {
+    // Optional hook before homing push; no-op by default
+  }
+
+  @Override
+  public void setNeutralMode(NeutralModeValue mode) {
+    motor.setNeutralMode(mode);
+    follower.setNeutralMode(mode);
   }
 }

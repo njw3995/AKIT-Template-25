@@ -1,6 +1,6 @@
 package frc.robot.subsystems.elevator;
 
-import edu.wpi.first.math.*;
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.controller.ElevatorFeedforward;
 import edu.wpi.first.math.controller.ProfiledPIDController;
 import edu.wpi.first.math.system.plant.LinearSystemId;
@@ -17,33 +17,32 @@ public class ElevatorIOSim implements ElevatorIO {
   private boolean isClosedLoop;
 
   public ElevatorIOSim() {
-    sim =
-        new ElevatorSim(
-            LinearSystemId.createElevatorSystem(
-                ElevatorConstants.ELEVATOR_PARAMETERS.ELEVATOR_MOTOR_CONFIG(),
-                4,
-                ElevatorConstants.SPROCKET_PITCH_DIAMETER * 0.0254 / 2,
-                ElevatorConstants.GEARING),
-            ElevatorConstants.ELEVATOR_PARAMETERS.ELEVATOR_MOTOR_CONFIG(),
-            ElevatorConstants.ELEVATOR_PARAMETERS.MIN_HEIGHT_METERS(),
-            ElevatorConstants.ELEVATOR_PARAMETERS.MAX_HEIGHT_METERS(),
-            true,
-            ElevatorConstants.ELEVATOR_PARAMETERS.MIN_HEIGHT_METERS());
+    final double drumRadiusMeters = (ElevatorConstants.SPROCKET_PITCH_DIAMETER * 0.0254) / 2.0;
 
-    feedback =
-        new ProfiledPIDController(
-            ElevatorConstants.GAINS.kP().get(),
-            0,
-            ElevatorConstants.GAINS.kD().get(),
-            new Constraints(
-                ElevatorConstants.CONSTRAINTS.cruisingVelocityMetersPerSecond().get(),
-                ElevatorConstants.CONSTRAINTS.maxAccelerationMetersPerSecondSquared().get()));
+    sim = new ElevatorSim(
+        LinearSystemId.createElevatorSystem(
+            ElevatorConstants.MOTOR_MODEL,
+            ElevatorConstants.CARRIAGE_MASS_KG,
+            drumRadiusMeters,
+            ElevatorConstants.GEARING),
+        ElevatorConstants.MOTOR_MODEL,
+        ElevatorConstants.MIN_HEIGHT_METERS,
+        ElevatorConstants.MAX_HEIGHT_METERS,
+        true,
+        ElevatorConstants.MIN_HEIGHT_METERS);
 
-    feedforward =
-        new ElevatorFeedforward(
-            ElevatorConstants.GAINS.kS().get(),
-            ElevatorConstants.GAINS.kG().get(),
-            ElevatorConstants.GAINS.kV().get());
+    feedback = new ProfiledPIDController(
+        ElevatorConstants.T_S0_kP.get(),
+        0.0,
+        ElevatorConstants.T_S0_kD.get(),
+        new Constraints(
+            ElevatorConstants.T_CRUISE_VEL_MPS.get(),
+            ElevatorConstants.T_MAX_ACCEL_MPS2.get()));
+
+    feedforward = new ElevatorFeedforward(
+        ElevatorConstants.T_S0_kS.get(),
+        ElevatorConstants.T_S0_kG.get(),
+        ElevatorConstants.T_S0_kV.get());
 
     appliedVolts = 0.0;
     isClosedLoop = true;
@@ -51,6 +50,7 @@ public class ElevatorIOSim implements ElevatorIO {
 
   @Override
   public void updateInputs(ElevatorIOInputs inputs) {
+    // 20ms step
     if (isClosedLoop) {
       appliedVolts =
           feedback.calculate(sim.getPositionMeters())
@@ -58,57 +58,68 @@ public class ElevatorIOSim implements ElevatorIO {
     }
     appliedVolts = MathUtil.clamp(appliedVolts, -12.0, 12.0);
     sim.setInputVoltage(appliedVolts);
+    sim.update(0.02);
 
     inputs.data =
         new ElevatorIOData(
-            true,
-            true,
+            true,  // motorConnected
+            true,  // followerConnected
+            false, // tempFault
+            false,
+            false,
+            false,
             sim.getPositionMeters(),
             sim.getVelocityMetersPerSecond(),
             appliedVolts,
             Math.copySign(sim.getCurrentDrawAmps(), appliedVolts),
             Math.copySign(sim.getCurrentDrawAmps(), appliedVolts),
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
             feedback.getGoal().position,
             feedback.getSetpoint().position,
-            feedback.getPositionError());
+            feedback.getPositionError(),
+            0.0,
+            0.0);
   }
 
   @Override
-  public void setVoltage(double volts) {
+  public void setElevatorVoltage(double volts) {
     isClosedLoop = false;
     appliedVolts = volts;
   }
 
   @Override
-  public void stop() {
-    isClosedLoop = false;
-    appliedVolts = 0;
-  }
-
-  @Override
-  public void setPosition(double position) {
-    sim.setState(position, 0);
-  }
-
-  @Override
-  public void setPositionGoal(double position) {
+  public void setElevatorPosition(double meters) {
     isClosedLoop = true;
-    feedback.setGoal(position);
+    feedback.setGoal(meters);
   }
 
   @Override
-  public void updateGains(double kP, double kD, double kS, double kV, double kA, double kG) {
-    feedback.setPID(kP, 0, kD);
+  public void updateSlot0ElevatorGains(double kP, double kD, double kS, double kV, double kA, double kG) {
+    feedback.setPID(kP, 0.0, kD);
     feedforward = new ElevatorFeedforward(kS, kG, kV);
   }
 
   @Override
-  public void updateConstraints(double maxAcceleration, double cruisingVelocity) {
+  public void updateSlot1ElevatorGains(double kP, double kD, double kS, double kV, double kA, double kG) {
+    // SIM doesn’t use Slot1; left as no-op for parity.
+  }
+
+  @Override
+  public void updateElevatorConstraints(double maxAcceleration, double cruisingVelocity) {
     feedback.setConstraints(new Constraints(cruisingVelocity, maxAcceleration));
+  }
+
+  @Override
+  public void zeroElevatorPosition() {
+    sim.setState(ElevatorConstants.MIN_HEIGHT_METERS, 0.0);
+  }
+
+  @Override
+  public void elevatorMax() {
+    // optional hook; no-op in sim
+  }
+
+  @Override
+  public void setNeutralMode(com.ctre.phoenix6.signals.NeutralModeValue mode) {
+    // sim no-op
   }
 }
