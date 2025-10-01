@@ -1,30 +1,30 @@
 package frc.robot.subsystems.elevator;
 
-import edu.wpi.first.math.geometry.Rotation2d; // kept for parity (unused in elevator)
-import org.littletonrobotics.junction.AutoLog;
+// kept for parity (unused in elevator)
 import com.ctre.phoenix6.signals.NeutralModeValue;
+import org.littletonrobotics.junction.AutoLog;
 
 public interface ElevatorIO {
   @AutoLog
   class ElevatorIOInputs {
     public ElevatorIOData data =
         new ElevatorIOData(
-          false,  // motorConnected
-          false,  // followerConnected
-          false,  // tempFault
-          false,  // followerTempFault
-          false,  // zeroSwitchTriggered
-          false,  // lowerLimitTriggered
-          0.0,    // positionMeters
-          0.0,    // velocityMetersPerSec
-          0.0,    // appliedVolts
-          0.0,    // torqueCurrentAmps
-          0.0,    // supplyCurrentAmps
-          0.0,    // elevatorPositionGoalMeters
-          0.0,    // elevatorPositionSetpointMeters
-          0.0,    // elevatorPositionErrorMeters
-          0.0,    // tempCelsiusLeader
-          0.0);   // tempCelsiusFollower
+            false, // motorConnected
+            false, // followerConnected
+            false, // tempFault
+            false, // followerTempFault
+            false, // zeroSwitchTriggered
+            false, // lowerLimitTriggered
+            0.0, // positionMeters
+            0.0, // velocityMetersPerSec
+            0.0, // appliedVolts
+            0.0, // torqueCurrentAmps
+            0.0, // supplyCurrentAmps
+            0.0, // elevatorPositionGoalMeters
+            0.0, // elevatorPositionSetpointMeters
+            0.0, // elevatorPositionErrorMeters
+            0.0, // tempCelsiusLeader
+            0.0); // tempCelsiusFollower
   }
 
   record ElevatorIOData(
@@ -66,15 +66,11 @@ public interface ElevatorIO {
    */
   public default void setElevatorPosition(double meters) {}
 
-  /**
-   * Slot0 gains for the elevator.
-   */
+  /** Slot0 gains for the elevator. */
   public default void updateSlot0ElevatorGains(
       double kP, double kD, double kS, double kV, double kA, double kG) {}
 
-  /**
-   * Slot1 gains for the elevator (optional alt profile, e.g., stow).
-   */
+  /** Slot1 gains for the elevator (optional alt profile, e.g., stow). */
   public default void updateSlot1ElevatorGains(
       double kP, double kD, double kS, double kV, double kA, double kG) {}
 

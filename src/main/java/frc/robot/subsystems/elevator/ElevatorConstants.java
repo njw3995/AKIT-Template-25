@@ -3,9 +3,6 @@ package frc.robot.subsystems.elevator;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
-import com.ctre.phoenix6.signals.ReverseLimitSourceValue;
-import com.ctre.phoenix6.signals.ReverseLimitTypeValue;
-
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
 import frc.robot.Constants;
@@ -32,10 +29,12 @@ public final class ElevatorConstants {
 
   /** Soft limits (meters). */
   public static final double MIN_HEIGHT_METERS = 0.0;
+
   public static final double MAX_HEIGHT_METERS = 1.43 + Units.inchesToMeters(0.5);
 
   /** Sim/feeds helpers. */
   public static final int NUM_MOTORS = 2;
+
   public static final double CARRIAGE_MASS_KG = 6.803886;
   public static final DCMotor MOTOR_MODEL = DCMotor.getKrakenX60Foc(NUM_MOTORS);
 
@@ -47,8 +46,9 @@ public final class ElevatorConstants {
   public static final int SUPPLY_CURRENT_LIMIT = 80;
   public static final boolean USE_SUPPLY_CURRENT_LIMIT = true;
 
-  /** Optional “lower” threshold + timer (kept from your originals). */
-  public static final int SUPPLY_LOWER_CURRENT_LIMIT = 40;       // SupplyCurrentLowerLimit
+  /** Optional "lower" threshold + timer (kept from your originals). */
+  public static final int SUPPLY_LOWER_CURRENT_LIMIT = 40; // SupplyCurrentLowerLimit
+
   public static final double SUPPLY_CURRENT_LIMIT_TIMEOUT = 1.5; // SupplyCurrentLowerTime (sec)
   public static final boolean USE_SUPPLY_LOWER_CURRENT_LIMIT = true;
 
@@ -119,13 +119,13 @@ public final class ElevatorConstants {
   public static final class Preset {
     public static final double INITIAL_HEIGHT = Units.inchesToMeters(0.0);
 
-    public static final double STOW        = Units.inchesToMeters(-0.1);
-    public static final double L1          = Units.inchesToMeters(2.0);
-    public static final double L2          = Units.inchesToMeters(6.75);
-    public static final double L3          = Units.inchesToMeters(14.5);
-    public static final double L4          = Units.inchesToMeters(26.9);
-    public static final double ALGAE_HIGH  = Units.inchesToMeters(17.0);
-    public static final double ALGAE_LOW   = Units.inchesToMeters(8.5);
+    public static final double STOW = Units.inchesToMeters(-0.1);
+    public static final double L1 = Units.inchesToMeters(2.0);
+    public static final double L2 = Units.inchesToMeters(6.75);
+    public static final double L3 = Units.inchesToMeters(14.5);
+    public static final double L4 = Units.inchesToMeters(26.9);
+    public static final double ALGAE_HIGH = Units.inchesToMeters(17.0);
+    public static final double ALGAE_LOW = Units.inchesToMeters(8.5);
   }
 
   // ---------- Phoenix6 config object (ready-to-apply) ----------
@@ -135,13 +135,25 @@ public final class ElevatorConstants {
     // SIM overrides to match your original SIM tunings.
     switch (Constants.getMode()) {
       case SIM -> {
-        T_S0_kP.initDefault(20.0); T_S0_kD.initDefault(0.0); T_S0_kS.initDefault(0.0); T_S0_kG.initDefault(0.0); T_S0_kV.initDefault(0.0); T_S0_kA.initDefault(0.0);
-        T_S1_kP.initDefault(20.0); T_S1_kD.initDefault(0.0); T_S1_kS.initDefault(0.0); T_S1_kG.initDefault(0.0); T_S1_kV.initDefault(0.0); T_S1_kA.initDefault(0.0);
+        T_S0_kP.initDefault(20.0);
+        T_S0_kD.initDefault(0.0);
+        T_S0_kS.initDefault(0.0);
+        T_S0_kG.initDefault(0.0);
+        T_S0_kV.initDefault(0.0);
+        T_S0_kA.initDefault(0.0);
+        T_S1_kP.initDefault(20.0);
+        T_S1_kD.initDefault(0.0);
+        T_S1_kS.initDefault(0.0);
+        T_S1_kG.initDefault(0.0);
+        T_S1_kV.initDefault(0.0);
+        T_S1_kA.initDefault(0.0);
         T_MAX_ACCEL_MPS2.initDefault(101.078594);
         T_CRUISE_VEL_MPS.initDefault(11.329982);
         T_GOAL_TOLERANCE_M.initDefault(0.02);
       }
-      case REAL, REPLAY -> { /* keep defaults */ }
+      case REAL, REPLAY -> {
+        /* keep defaults */
+      }
       default -> {}
     }
 
@@ -185,12 +197,18 @@ public final class ElevatorConstants {
     MOTOR_CONFIG.MotionMagic.MotionMagicAcceleration = accelRps2;
 
     // Closed-loop gains
-    MOTOR_CONFIG.Slot0.kP = T_S0_kP.get(); MOTOR_CONFIG.Slot0.kD = T_S0_kD.get();
-    MOTOR_CONFIG.Slot0.kS = T_S0_kS.get(); MOTOR_CONFIG.Slot0.kG = T_S0_kG.get();
-    MOTOR_CONFIG.Slot0.kV = T_S0_kV.get(); MOTOR_CONFIG.Slot0.kA = T_S0_kA.get();
+    MOTOR_CONFIG.Slot0.kP = T_S0_kP.get();
+    MOTOR_CONFIG.Slot0.kD = T_S0_kD.get();
+    MOTOR_CONFIG.Slot0.kS = T_S0_kS.get();
+    MOTOR_CONFIG.Slot0.kG = T_S0_kG.get();
+    MOTOR_CONFIG.Slot0.kV = T_S0_kV.get();
+    MOTOR_CONFIG.Slot0.kA = T_S0_kA.get();
 
-    MOTOR_CONFIG.Slot1.kP = T_S1_kP.get(); MOTOR_CONFIG.Slot1.kD = T_S1_kD.get();
-    MOTOR_CONFIG.Slot1.kS = T_S1_kS.get(); MOTOR_CONFIG.Slot1.kG = T_S1_kG.get();
-    MOTOR_CONFIG.Slot1.kV = T_S1_kV.get(); MOTOR_CONFIG.Slot1.kA = T_S1_kA.get();
+    MOTOR_CONFIG.Slot1.kP = T_S1_kP.get();
+    MOTOR_CONFIG.Slot1.kD = T_S1_kD.get();
+    MOTOR_CONFIG.Slot1.kS = T_S1_kS.get();
+    MOTOR_CONFIG.Slot1.kG = T_S1_kG.get();
+    MOTOR_CONFIG.Slot1.kV = T_S1_kV.get();
+    MOTOR_CONFIG.Slot1.kA = T_S1_kA.get();
   }
 }

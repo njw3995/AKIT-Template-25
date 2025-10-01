@@ -226,7 +226,7 @@ public class Vision extends SubsystemBase {
    * Single-tag fallback: prefer MT1 if single tag, else MT2 if single tag. XY from vision, yaw from
    * gyro/odometry if available.
    *
-   * <p>Pattern source: 254’s “fuse with gyro” path for single-tag when MT multi-tag quality is low.
+   * <p>Pattern source: 254’s "fuse with gyro" path for single-tag when MT multi-tag quality is low.
    *
    * @param cam the camera
    * @param isBlue alliance color for LL helper

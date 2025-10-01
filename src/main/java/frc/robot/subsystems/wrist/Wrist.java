@@ -1,9 +1,9 @@
 package frc.robot.subsystems.wrist;
 
 import edu.wpi.first.math.MathUtil;
-import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.filter.Debouncer;
 import edu.wpi.first.math.filter.Debouncer.DebounceType;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Robot;
@@ -15,18 +15,17 @@ public class Wrist extends SubsystemBase {
 
   protected final WristIOInputsAutoLogged inputs = new WristIOInputsAutoLogged();
 
-  private final Debouncer motorConnectedDebouncer =
-      new Debouncer(0.5, DebounceType.kFalling);
+  private final Debouncer motorConnectedDebouncer = new Debouncer(0.5, DebounceType.kFalling);
   private final Alert disconnected;
   private final Alert tempFault;
 
   // ===== 2910-style state machine =====
   public enum WantedState {
-    HOME,              // drive to hardstop, zero to MIN_ANGLE
-    IDLE,              // stop output
-    MOVE_TO_POSITION,  // closed-loop to a target angle
-    HOLD,              // hold current goal; useful for tuning
-    MANUAL_VOLTAGE,    // direct open-loop; useful for tuning
+    HOME, // drive to hardstop, zero to MIN_ANGLE
+    IDLE, // stop output
+    MOVE_TO_POSITION, // closed-loop to a target angle
+    HOLD, // hold current goal; useful for tuning
+    MANUAL_VOLTAGE, // direct open-loop; useful for tuning
     OFF
   }
 
@@ -44,7 +43,7 @@ public class Wrist extends SubsystemBase {
 
   // targets / params (state drives behavior)
   private Rotation2d wantedAngle = WristConstants.Preset.STOW; // target for MOVE_TO_POSITION
-  private Rotation2d holdAngle   = WristConstants.Preset.STOW; // sticky goal for HOLD
+  private Rotation2d holdAngle = WristConstants.Preset.STOW; // sticky goal for HOLD
   private double manualVolts = 0.0;
 
   // homing params (match your original intent)
@@ -60,7 +59,7 @@ public class Wrist extends SubsystemBase {
     tempFault = new Alert(getName() + " motor too hot! 🥵", Alert.AlertType.kWarning);
   }
 
-  // --- setWantedState overloads (all funnel to the “super” one) ---
+  // --- setWantedState overloads (all funnel to the "super" one) ---
   public void setWantedState(WantedState next) {
     this.wantedState = next;
   }
@@ -187,10 +186,11 @@ public class Wrist extends SubsystemBase {
 
   /** Clamp any requested angle to software limits. */
   private static Rotation2d clampToLimits(Rotation2d angle) {
-    double rot = MathUtil.clamp(
-        angle.getRotations(),
-        WristConstants.MIN_ANGLE.getRotations(),
-        WristConstants.MAX_ANGLE.getRotations());
+    double rot =
+        MathUtil.clamp(
+            angle.getRotations(),
+            WristConstants.MIN_ANGLE.getRotations(),
+            WristConstants.MAX_ANGLE.getRotations());
     return Rotation2d.fromRotations(rot);
   }
 
@@ -201,13 +201,35 @@ public class Wrist extends SubsystemBase {
   }
 
   // IOData Getters (names/shape mirror EndEffector)
-  public double getPositionRads() { return inputs.data.positionRad(); }
-  public double getVelocityRadsPerSec() { return inputs.data.velocityRadPerSec(); }
-  public double getAppliedVoltage() { return inputs.data.appliedVolts(); }
-  public double getSupplyCurrentAmps() { return inputs.data.supplyCurrentAmps(); }
-  public double getTorqueCurrentAmps() { return inputs.data.torqueCurrentAmps(); }
-  public double getTempCelsius() { return inputs.data.tempCelsius(); }
-  public boolean getConnected() { return inputs.data.motorConnected(); }
-  public boolean getTempFault() { return inputs.data.tempFault(); }
+  public double getPositionRads() {
+    return inputs.data.positionRad();
+  }
 
+  public double getVelocityRadsPerSec() {
+    return inputs.data.velocityRadPerSec();
+  }
+
+  public double getAppliedVoltage() {
+    return inputs.data.appliedVolts();
+  }
+
+  public double getSupplyCurrentAmps() {
+    return inputs.data.supplyCurrentAmps();
+  }
+
+  public double getTorqueCurrentAmps() {
+    return inputs.data.torqueCurrentAmps();
+  }
+
+  public double getTempCelsius() {
+    return inputs.data.tempCelsius();
+  }
+
+  public boolean getConnected() {
+    return inputs.data.motorConnected();
+  }
+
+  public boolean getTempFault() {
+    return inputs.data.tempFault();
+  }
 }

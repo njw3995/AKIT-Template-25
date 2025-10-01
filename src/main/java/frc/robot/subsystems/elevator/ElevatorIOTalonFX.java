@@ -2,8 +2,6 @@ package frc.robot.subsystems.elevator;
 
 import static frc.robot.util.PhoenixUtil.tryUntilOk;
 
-import org.littletonrobotics.junction.Logger;
-
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
@@ -12,13 +10,12 @@ import com.ctre.phoenix6.controls.MotionMagicVoltage;
 import com.ctre.phoenix6.controls.VoltageOut;
 import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.TalonFX;
-import com.ctre.phoenix6.signals.GravityTypeValue;
-import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
 import edu.wpi.first.units.measure.*;
 import edu.wpi.first.wpilibj.DigitalInput;
 import frc.robot.Constants;
 import frc.robot.util.PhoenixUtil;
+import org.littletonrobotics.junction.Logger;
 
 public class ElevatorIOTalonFX implements ElevatorIO {
 
@@ -72,17 +69,30 @@ public class ElevatorIOTalonFX implements ElevatorIO {
     positionErrorRot = motor.getClosedLoopError();
 
     BaseStatusSignal.setUpdateFrequencyForAll(
-    50.0,
-      rotorPos, rotorVel, appliedVolts, supplyCurrent, motorTemp, followerTemp,
-      positionSetpointRot, positionErrorRot,
-      leaderTempFault, followerTempFault);
+        50.0,
+        rotorPos,
+        rotorVel,
+        appliedVolts,
+        supplyCurrent,
+        motorTemp,
+        followerTemp,
+        positionSetpointRot,
+        positionErrorRot,
+        leaderTempFault,
+        followerTempFault);
     ParentDevice.optimizeBusUtilizationForAll(motor, follower);
 
     PhoenixUtil.registerSignals(
-    true,
-    rotorPos, rotorVel, appliedVolts, torqueCurrent, supplyCurrent,
-    motorTemp, followerTemp,
-    leaderTempFault, followerTempFault);
+        true,
+        rotorPos,
+        rotorVel,
+        appliedVolts,
+        torqueCurrent,
+        supplyCurrent,
+        motorTemp,
+        followerTemp,
+        leaderTempFault,
+        followerTempFault);
   }
 
   @Override
@@ -103,9 +113,12 @@ public class ElevatorIOTalonFX implements ElevatorIO {
             appliedVolts.getValueAsDouble(),
             torqueCurrent.getValueAsDouble(),
             supplyCurrent.getValueAsDouble(),
-            /* goal m */ positionSetpointRot.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS,
-            /* sp m   */ positionSetpointRot.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS,
-            /* err m  */ positionErrorRot.getValueAsDouble() * ElevatorConstants.ROTATIONS_TO_METERS,
+            /* goal m */ positionSetpointRot.getValueAsDouble()
+                * ElevatorConstants.ROTATIONS_TO_METERS,
+            /* sp m   */ positionSetpointRot.getValueAsDouble()
+                * ElevatorConstants.ROTATIONS_TO_METERS,
+            /* err m  */ positionErrorRot.getValueAsDouble()
+                * ElevatorConstants.ROTATIONS_TO_METERS,
             motorTemp.getValueAsDouble(),
             followerTemp.getValueAsDouble());
   }
@@ -124,7 +137,8 @@ public class ElevatorIOTalonFX implements ElevatorIO {
   }
 
   @Override
-  public void updateSlot0ElevatorGains(double kP, double kD, double kS, double kV, double kA, double kG) {
+  public void updateSlot0ElevatorGains(
+      double kP, double kD, double kS, double kV, double kA, double kG) {
     liveCfg.Slot0.kP = kP;
     liveCfg.Slot0.kD = kD;
     liveCfg.Slot0.kS = kS;
@@ -136,7 +150,8 @@ public class ElevatorIOTalonFX implements ElevatorIO {
   }
 
   @Override
-  public void updateSlot1ElevatorGains(double kP, double kD, double kS, double kV, double kA, double kG) {
+  public void updateSlot1ElevatorGains(
+      double kP, double kD, double kS, double kV, double kA, double kG) {
     liveCfg.Slot1.kP = kP;
     liveCfg.Slot1.kD = kD;
     liveCfg.Slot1.kS = kS;
@@ -151,7 +166,7 @@ public class ElevatorIOTalonFX implements ElevatorIO {
   public void updateElevatorConstraints(double maxAcceleration, double cruisingVelocity) {
     // meters/sec -> mech rotations/sec (NOT rotor rps)
     final double cruiseRps = cruisingVelocity / ElevatorConstants.SPROCKET_CIRCUMFERENCE_METERS;
-    final double accelRps2  = maxAcceleration / ElevatorConstants.SPROCKET_CIRCUMFERENCE_METERS;
+    final double accelRps2 = maxAcceleration / ElevatorConstants.SPROCKET_CIRCUMFERENCE_METERS;
     liveCfg.MotionMagic.MotionMagicAcceleration = accelRps2;
     liveCfg.MotionMagic.MotionMagicCruiseVelocity = cruiseRps;
     tryUntilOk(5, () -> motor.getConfigurator().apply(liveCfg));
@@ -161,7 +176,8 @@ public class ElevatorIOTalonFX implements ElevatorIO {
   @Override
   public void zeroElevatorPosition() {
     // set to MIN height in rotor rotations space
-    final double minRot = ElevatorConstants.MIN_HEIGHT_METERS / ElevatorConstants.ROTATIONS_TO_METERS;
+    final double minRot =
+        ElevatorConstants.MIN_HEIGHT_METERS / ElevatorConstants.ROTATIONS_TO_METERS;
     motor.setPosition(minRot);
   }
 

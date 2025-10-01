@@ -161,7 +161,7 @@ public class WristIOTalonFX implements WristIO {
   }
 
   @Override
-  public void setNeutralMode(NeutralModeValue mode) { 
+  public void setNeutralMode(NeutralModeValue mode) {
     config.MotorOutput.NeutralMode = mode;
     tryUntilOk(5, () -> motor.getConfigurator().apply(config, 0.25));
   }

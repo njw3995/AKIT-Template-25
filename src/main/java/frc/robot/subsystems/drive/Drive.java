@@ -7,9 +7,17 @@
 
 package frc.robot.subsystems.drive;
 
+import com.pathplanner.lib.auto.AutoBuilder;
+import com.pathplanner.lib.config.ModuleConfig;
+import com.pathplanner.lib.config.PIDConstants;
+import com.pathplanner.lib.config.RobotConfig;
+import com.pathplanner.lib.controllers.PPHolonomicDriveController;
+import com.pathplanner.lib.pathfinding.Pathfinding;
+import com.pathplanner.lib.util.PathPlannerLogging;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.Vector;
 import edu.wpi.first.math.filter.Debouncer;
+import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Twist3d;
@@ -18,15 +26,19 @@ import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.math.numbers.N2;
+import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
 import frc.robot.Constants.Mode;
 import frc.robot.Robot;
 import frc.robot.RobotState;
+import frc.robot.generated.TunerConstants;
+import frc.robot.util.LocalADStarAK;
 import frc.robot.util.LoggedTracer;
 import frc.robot.util.LoggedTunableNumber;
 import frc.robot.util.swerve.SwerveSetpoint;
@@ -74,6 +86,26 @@ public class Drive extends SubsystemBase {
           });
   private final SwerveSetpointGenerator swerveSetpointGenerator;
 
+  private static final double PP_ROBOT_MASS_KG = 74.088;
+  private static final double PP_ROBOT_MOI = 6.883;
+  private static final double PP_WHEEL_COF = 1.2;
+
+  /** RobotConfig for PathPlanner (geometry & max speed come from DriveConstants/TunerConstants). */
+  private static final RobotConfig PP_ROBOT_CONFIG =
+      new RobotConfig(
+          PP_ROBOT_MASS_KG,
+          PP_ROBOT_MOI,
+          new ModuleConfig(
+              DriveConstants.wheelRadius,
+              DriveConstants.maxLinearSpeed,
+              PP_WHEEL_COF,
+              // Use Tuner motor spec w/ reduction for characterization model
+              DCMotor.getKrakenX60Foc(1)
+                  .withReduction(TunerConstants.FrontLeft.DriveMotorGearRatio),
+              TunerConstants.FrontLeft.SlipCurrent,
+              1),
+          DriveConstants.moduleTranslations);
+
   public Drive(
       GyroIO gyroIO,
       ModuleIO flModuleIO,
@@ -93,6 +125,28 @@ public class Drive extends SubsystemBase {
 
     // Start odometry thread
     PhoenixOdometryThread.getInstance().start();
+
+    AutoBuilder.configure(
+        this::getPose, // Where we are (RobotState-backed)
+        this::setPose, // Reset pose
+        this::getChassisSpeeds, // Measured robot-relative speeds
+        speeds -> this.runVelocity(speeds), // How to command the drivetrain
+        new PPHolonomicDriveController(
+            new PIDConstants(5.0, 0.0, 0.0), // translation PID (tune as needed)
+            new PIDConstants(5.0, 0.0, 0.0) // rotation PID (tune as needed)
+            ),
+        PP_ROBOT_CONFIG,
+        () -> DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red,
+        this);
+    Pathfinding.setPathfinder(new LocalADStarAK());
+    // Optional PP logging hooks
+    PathPlannerLogging.setLogActivePathCallback(
+        (activePath) ->
+            Logger.recordOutput(
+                "Odometry/Trajectory", activePath.toArray(new Pose2d[activePath.size()])));
+
+    PathPlannerLogging.setLogTargetPoseCallback(
+        (targetPose) -> Logger.recordOutput("Odometry/TrajectorySetpoint", targetPose));
   }
 
   public enum CoastRequest {
@@ -351,6 +405,18 @@ public class Drive extends SubsystemBase {
   @AutoLogOutput(key = "Drive/SwerveChassisSpeeds/Measured")
   private ChassisSpeeds getChassisSpeeds() {
     return kinematics.toChassisSpeeds(getModuleStates());
+  }
+
+  /** PathPlanner pose supplier (delegates to RobotState). */
+  @AutoLogOutput(key = "Odometry/Robot")
+  public Pose2d getPose() {
+    return RobotState.getInstance().getRobotPoseOdometry();
+  }
+
+  /** PathPlanner pose resetter (no-op here unless you have a RobotState reset API). */
+  public void setPose(Pose2d pose) {
+    // If your RobotState exposes a reset method, call it here.
+    RobotState.getInstance().resetRobotPose(pose);
   }
 
   /** Returns the position of each module in radians. */

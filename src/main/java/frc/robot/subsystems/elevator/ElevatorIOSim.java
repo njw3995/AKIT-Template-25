@@ -19,30 +19,33 @@ public class ElevatorIOSim implements ElevatorIO {
   public ElevatorIOSim() {
     final double drumRadiusMeters = (ElevatorConstants.SPROCKET_PITCH_DIAMETER * 0.0254) / 2.0;
 
-    sim = new ElevatorSim(
-        LinearSystemId.createElevatorSystem(
+    sim =
+        new ElevatorSim(
+            LinearSystemId.createElevatorSystem(
+                ElevatorConstants.MOTOR_MODEL,
+                ElevatorConstants.CARRIAGE_MASS_KG,
+                drumRadiusMeters,
+                ElevatorConstants.GEARING),
             ElevatorConstants.MOTOR_MODEL,
-            ElevatorConstants.CARRIAGE_MASS_KG,
-            drumRadiusMeters,
-            ElevatorConstants.GEARING),
-        ElevatorConstants.MOTOR_MODEL,
-        ElevatorConstants.MIN_HEIGHT_METERS,
-        ElevatorConstants.MAX_HEIGHT_METERS,
-        true,
-        ElevatorConstants.MIN_HEIGHT_METERS);
+            ElevatorConstants.MIN_HEIGHT_METERS,
+            ElevatorConstants.MAX_HEIGHT_METERS,
+            true,
+            ElevatorConstants.MIN_HEIGHT_METERS);
 
-    feedback = new ProfiledPIDController(
-        ElevatorConstants.T_S0_kP.get(),
-        0.0,
-        ElevatorConstants.T_S0_kD.get(),
-        new Constraints(
-            ElevatorConstants.T_CRUISE_VEL_MPS.get(),
-            ElevatorConstants.T_MAX_ACCEL_MPS2.get()));
+    feedback =
+        new ProfiledPIDController(
+            ElevatorConstants.T_S0_kP.get(),
+            0.0,
+            ElevatorConstants.T_S0_kD.get(),
+            new Constraints(
+                ElevatorConstants.T_CRUISE_VEL_MPS.get(),
+                ElevatorConstants.T_MAX_ACCEL_MPS2.get()));
 
-    feedforward = new ElevatorFeedforward(
-        ElevatorConstants.T_S0_kS.get(),
-        ElevatorConstants.T_S0_kG.get(),
-        ElevatorConstants.T_S0_kV.get());
+    feedforward =
+        new ElevatorFeedforward(
+            ElevatorConstants.T_S0_kS.get(),
+            ElevatorConstants.T_S0_kG.get(),
+            ElevatorConstants.T_S0_kV.get());
 
     appliedVolts = 0.0;
     isClosedLoop = true;
@@ -62,8 +65,8 @@ public class ElevatorIOSim implements ElevatorIO {
 
     inputs.data =
         new ElevatorIOData(
-            true,  // motorConnected
-            true,  // followerConnected
+            true, // motorConnected
+            true, // followerConnected
             false, // tempFault
             false,
             false,
@@ -93,13 +96,15 @@ public class ElevatorIOSim implements ElevatorIO {
   }
 
   @Override
-  public void updateSlot0ElevatorGains(double kP, double kD, double kS, double kV, double kA, double kG) {
+  public void updateSlot0ElevatorGains(
+      double kP, double kD, double kS, double kV, double kA, double kG) {
     feedback.setPID(kP, 0.0, kD);
     feedforward = new ElevatorFeedforward(kS, kG, kV);
   }
 
   @Override
-  public void updateSlot1ElevatorGains(double kP, double kD, double kS, double kV, double kA, double kG) {
+  public void updateSlot1ElevatorGains(
+      double kP, double kD, double kS, double kV, double kA, double kG) {
     // SIM doesn’t use Slot1; left as no-op for parity.
   }
 

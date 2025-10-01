@@ -18,6 +18,7 @@ public final class WristConstants {
   public static final double GEARING = 90.0;
   /** Joint soft limits (mechanism space). */
   public static final Rotation2d MIN_ANGLE = Rotation2d.fromDegrees(-77.0);
+
   public static final Rotation2d MAX_ANGLE = Rotation2d.fromDegrees(75.0);
   /** Link length for inertia/CG modeling (meters). */
   public static final double LENGTH_METERS = 0.5;
@@ -37,6 +38,7 @@ public final class WristConstants {
   // ---------- Closed-loop gains (defaults) ----------
   /** Slot0 = lighter load (no algae). */
   public static final double S0_kP = 125.0;
+
   public static final double S0_kD = 0.0;
   public static final double S0_kS = 0.24274;
   public static final double S0_kV = 0.0;
@@ -46,6 +48,7 @@ public final class WristConstants {
 
   /** Slot1 = heavier load (with algae). */
   public static final double S1_kP = 125.0;
+
   public static final double S1_kD = 0.0;
   public static final double S1_kS = 0.65347;
   public static final double S1_kV = 0.0;
@@ -94,21 +97,21 @@ public final class WristConstants {
 
   // ---------- Preset positions (angles you command to) ----------
   public static final class Preset {
-    public static final Rotation2d STOW             = Rotation2d.fromDegrees(6.25);
-    public static final Rotation2d AUTO_HOVER_L4    = Rotation2d.fromDegrees(24.15);
-    public static final Rotation2d HOVER_L4         = Rotation2d.fromDegrees(29.15);
-    public static final Rotation2d HOVER_L3         = Rotation2d.fromDegrees(31.15);
-    public static final Rotation2d HOVER_L2         = Rotation2d.fromDegrees(29.15);
-    public static final Rotation2d HOVER_L1         = Rotation2d.fromDegrees(14.15);
-    public static final Rotation2d DUNK_L4          = Rotation2d.fromDegrees(39.15);
-    public static final Rotation2d DUNK_L3          = Rotation2d.fromDegrees(39.15);
-    public static final Rotation2d DUNK_L2          = Rotation2d.fromDegrees(39.15);
-    public static final Rotation2d DUNK_L1          = Rotation2d.fromDegrees(23.15);
-    public static final Rotation2d GROUND_ALGAE     = Rotation2d.fromDegrees(69.15);
-    public static final Rotation2d REEF_ALGAE_LOW   = Rotation2d.fromDegrees(40.15);
-    public static final Rotation2d REEF_ALGAE_HIGH  = Rotation2d.fromDegrees(36.15);
-    public static final Rotation2d PROCESSOR        = Rotation2d.fromDegrees(34.15);
-    public static final Rotation2d L1               = Rotation2d.fromDegrees(6.25);
+    public static final Rotation2d STOW = Rotation2d.fromDegrees(6.25);
+    public static final Rotation2d AUTO_HOVER_L4 = Rotation2d.fromDegrees(24.15);
+    public static final Rotation2d HOVER_L4 = Rotation2d.fromDegrees(29.15);
+    public static final Rotation2d HOVER_L3 = Rotation2d.fromDegrees(31.15);
+    public static final Rotation2d HOVER_L2 = Rotation2d.fromDegrees(29.15);
+    public static final Rotation2d HOVER_L1 = Rotation2d.fromDegrees(14.15);
+    public static final Rotation2d DUNK_L4 = Rotation2d.fromDegrees(39.15);
+    public static final Rotation2d DUNK_L3 = Rotation2d.fromDegrees(39.15);
+    public static final Rotation2d DUNK_L2 = Rotation2d.fromDegrees(39.15);
+    public static final Rotation2d DUNK_L1 = Rotation2d.fromDegrees(23.15);
+    public static final Rotation2d GROUND_ALGAE = Rotation2d.fromDegrees(69.15);
+    public static final Rotation2d REEF_ALGAE_LOW = Rotation2d.fromDegrees(40.15);
+    public static final Rotation2d REEF_ALGAE_HIGH = Rotation2d.fromDegrees(36.15);
+    public static final Rotation2d PROCESSOR = Rotation2d.fromDegrees(34.15);
+    public static final Rotation2d L1 = Rotation2d.fromDegrees(6.25);
   }
 
   // ---------- Phoenix6 config object (ready-to-apply) ----------

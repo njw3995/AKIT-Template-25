@@ -17,9 +17,6 @@ import com.pathplanner.lib.auto.AutoBuilder;
 import edu.wpi.first.wpilibj.GenericHID;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.Commands;
-import edu.wpi.first.wpilibj2.command.InstantCommand;
-import edu.wpi.first.wpilibj2.command.RunCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import frc.robot.commands.DriveCommands;
@@ -40,17 +37,13 @@ import frc.robot.subsystems.endeffector.EndEffectorIOSim;
 import frc.robot.subsystems.endeffector.EndEffectorIOTalonFX;
 import frc.robot.subsystems.superstructure.Superstructure;
 import frc.robot.subsystems.superstructure.SuperstructurePose;
-import frc.robot.subsystems.superstructure.SuperstructurePose.ElevatorLevel;
-import frc.robot.subsystems.superstructure.SuperstructureState;
-import frc.robot.subsystems.superstructure.SuperstructureState.WantedState;
 import frc.robot.subsystems.vision.CameraConstants;
 import frc.robot.subsystems.vision.Vision;
 import frc.robot.subsystems.wrist.Wrist;
 import frc.robot.subsystems.wrist.WristIO;
 import frc.robot.subsystems.wrist.WristIOSim;
 import frc.robot.subsystems.wrist.WristIOTalonFX;
-import frc.robot.util.FieldConstants.ReefSide;
-
+import frc.robot.util.OperatorDashboard;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 /**
@@ -66,13 +59,13 @@ public class RobotContainer {
   private final Elevator elevator;
   private final Wrist wrist;
   private final EndEffector endEffector;
+  private final OperatorDashboard operatorDashboard;
 
   private final Superstructure superstructure;
 
   // Controller
   private final CommandXboxController driver = new CommandXboxController(0);
   private final CommandXboxController operator = new CommandXboxController(1);
-
 
   // Dashboard inputs
   private final LoggedDashboardChooser<Command> autoChooser;
@@ -88,24 +81,24 @@ public class RobotContainer {
                 new ModuleIOTalonFX(DriveConstants.moduleConfigsComp[1]),
                 new ModuleIOTalonFX(DriveConstants.moduleConfigsComp[2]),
                 new ModuleIOTalonFX(DriveConstants.moduleConfigsComp[3]));
-        elevator    = new Elevator(new ElevatorIOTalonFX());
-        wrist       = new Wrist(new WristIOTalonFX());
+        elevator = new Elevator(new ElevatorIOTalonFX());
+        wrist = new Wrist(new WristIOTalonFX());
         endEffector = new EndEffector(new EndEffectorIOTalonFX());
-        vision      = new Vision(CameraConstants.RobotCameras.CAMERAS);
+        vision = new Vision(CameraConstants.RobotCameras.CAMERAS);
       }
 
       case SIM -> {
         drive =
             new Drive(
-                new GyroIO() {},           // simple stub
+                new GyroIO() {}, // simple stub
                 new ModuleIOSim(),
                 new ModuleIOSim(),
                 new ModuleIOSim(),
                 new ModuleIOSim());
-        elevator    = new Elevator(new ElevatorIOSim());
-        wrist       = new Wrist(new WristIOSim());
+        elevator = new Elevator(new ElevatorIOSim());
+        wrist = new Wrist(new WristIOSim());
         endEffector = new EndEffector(new EndEffectorIOSim());
-        vision      = new Vision();
+        vision = new Vision();
       }
 
       default /* REPLAY */ -> {
@@ -116,15 +109,17 @@ public class RobotContainer {
                 new ModuleIO() {},
                 new ModuleIO() {},
                 new ModuleIO() {});
-        elevator    = new Elevator(new ElevatorIO() {});
-        wrist       = new Wrist(new WristIO() {});
+        elevator = new Elevator(new ElevatorIO() {});
+        wrist = new Wrist(new WristIO() {});
         endEffector = new EndEffector(new EndEffectorIO() {});
-        vision      = new Vision();
+        vision = new Vision();
       }
     }
 
+    operatorDashboard = new OperatorDashboard();
+
     // Superstructure owns the high-level sequencing
-    superstructure = new Superstructure(elevator, wrist, endEffector);
+    superstructure = new Superstructure(drive, elevator, wrist, endEffector, operatorDashboard);
     vision.setYawSupplier(drive::getGyroRotation);
 
     // Set up auto routines
@@ -171,50 +166,55 @@ public class RobotContainer {
     Trigger zero = driver.back();
     Trigger coralUnstuck = driver.b();
 
-		Trigger elevatorTargetL1 = new Trigger(operator.a());
-		Trigger elevatorTargetL2 = new Trigger(operator.x());
-		Trigger elevatorTargetL3 = new Trigger(operator.y());
-		Trigger elevatorTargetL4 = new Trigger(operator.b());
-		Trigger elevatorDeploy = new Trigger(operator.rightTrigger());
-		Trigger elevatorStow = new Trigger(operator.leftTrigger());
-		Trigger climbToggle = new Trigger(operator.rightBumper());
-		Trigger climbStow = new Trigger(operator.leftBumper());
-		Trigger funnelDrop = new Trigger(operator.back());
-		Trigger resetFunnel = new Trigger(driver.start());
+    Trigger elevatorTargetL1 = new Trigger(operator.a());
+    Trigger elevatorTargetL2 = new Trigger(operator.x());
+    Trigger elevatorTargetL3 = new Trigger(operator.y());
+    Trigger elevatorTargetL4 = new Trigger(operator.b());
+    Trigger elevatorDeploy = new Trigger(operator.rightTrigger());
+    Trigger elevatorStow = new Trigger(operator.leftTrigger());
+    Trigger climbToggle = new Trigger(operator.rightBumper());
+    Trigger climbStow = new Trigger(operator.leftBumper());
+    Trigger funnelDrop = new Trigger(operator.back());
+    Trigger resetFunnel = new Trigger(driver.start());
 
     // resetFunnel.onTrue(leds.indicateDropCoral());
-  // zero.onTrue(drive.runOnce(() -> drive.resetRotation(drive.getOperatorForwardDirection())));
+    // zero.onTrue(drive.runOnce(() -> drive.resetRotation(drive.getOperatorForwardDirection())));
 
-  toggleStateButton.onTrue(superstructure.toggleModeCommand());
-  wristToggle.onTrue(superstructure.wristToggleCommand());
+    toggleStateButton.onTrue(superstructure.toggleModeCommand());
+    wristToggle.onTrue(superstructure.wristToggleCommand());
 
-  intakeButton
-      .whileTrue(superstructure.intakeStartCommand())
-      .onFalse(superstructure.intakeStopCommand());
+    intakeButton
+        .whileTrue(superstructure.intakeStartCommand())
+        .onFalse(superstructure.intakeStopCommand());
 
-  scoreConfirmButton
-      .whileTrue(superstructure.scoreStartCommand())
-      .onFalse(superstructure.scoreStopCommand());
+    scoreConfirmButton
+        .whileTrue(superstructure.scoreStartCommand())
+        .onFalse(superstructure.scoreStopCommand());
 
-  // autoAlignLeft.whileTrue(new AutoReefPoseCommand(drive, reefAlign, this::driveX, this::driveY, this::driveT, ReefSide.LEFT, superstructure));
-  // autoAlignRight.whileTrue(new AutoReefPoseCommand(drive, reefAlign, this::driveX, this::driveY, this::driveT, ReefSide.RIGHT, superstructure));
-  // scoreIntentButton
-  //     .whileTrue(new RunCommand(this::AutoScoreAlign))
-  //     .onFalse(new InstantCommand(() -> aligning = false));
+    autoAlignLeft.whileTrue(superstructure.alignLeftHoldCommand());
+    autoAlignRight.whileTrue(superstructure.alignRightHoldCommand());
+    // scoreIntentButton
+    //     .whileTrue(new RunCommand(this::AutoScoreAlign))
+    //     .onFalse(new InstantCommand(() -> aligning = false));
 
-  elevatorTargetL1.onTrue(superstructure.setDeployedCoralLevelCommand(SuperstructurePose.ElevatorLevel.L1));
-  elevatorTargetL2.onTrue(superstructure.setDeployedCoralLevelCommand(SuperstructurePose.ElevatorLevel.L2));
-  elevatorTargetL3.onTrue(superstructure.setDeployedCoralLevelCommand(SuperstructurePose.ElevatorLevel.L3));
-  elevatorTargetL4.onTrue(superstructure.setDeployedCoralLevelCommand(SuperstructurePose.ElevatorLevel.L4));
-  elevatorDeploy.onTrue(superstructure.deployCommand());
-  elevatorStow.onTrue(superstructure.stowCommand());
+    elevatorTargetL1.onTrue(
+        superstructure.setDeployedCoralLevelCommand(SuperstructurePose.ElevatorLevel.L1));
+    elevatorTargetL2.onTrue(
+        superstructure.setDeployedCoralLevelCommand(SuperstructurePose.ElevatorLevel.L2));
+    elevatorTargetL3.onTrue(
+        superstructure.setDeployedCoralLevelCommand(SuperstructurePose.ElevatorLevel.L3));
+    elevatorTargetL4.onTrue(
+        superstructure.setDeployedCoralLevelCommand(SuperstructurePose.ElevatorLevel.L4));
+    elevatorDeploy.onTrue(superstructure.deployCommand());
+    elevatorStow.onTrue(superstructure.stowCommand());
 
-  coralUnstuck.whileTrue(superstructure.coralUnstuckCommand());
+    // coralUnstuck.whileTrue(superstructure.coralUnstuckCommand());
 
-  // climbToggle.onTrue(new InstantCommand(() -> state.toggleClimb(climber)));
-  // climbStow.onTrue(new InstantCommand(() -> climber.setClimbSpeed(-1)))
-  //          .onFalse(new InstantCommand(() -> climber.setClimbSpeed(0)));
-  // funnelDrop.onTrue(state.dropFunnel(climber).andThen(new InstantCommand(climber::resetFunnel)));
+    // climbToggle.onTrue(new InstantCommand(() -> state.toggleClimb(climber)));
+    // climbStow.onTrue(new InstantCommand(() -> climber.setClimbSpeed(-1)))
+    //          .onFalse(new InstantCommand(() -> climber.setClimbSpeed(0)));
+    // funnelDrop.onTrue(state.dropFunnel(climber).andThen(new
+    // InstantCommand(climber::resetFunnel)));
 
   }
 

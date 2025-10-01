@@ -26,11 +26,11 @@ public class Elevator extends SubsystemBase {
 
   // ===== 2910-style state machine (names mirrored from Wrist) =====
   public enum WantedState {
-    HOME,              // drive to hardstop, zero to MIN_HEIGHT
-    IDLE,              // stop output
-    MOVE_TO_POSITION,  // closed-loop to a target height (m)
-    HOLD,              // hold current goal; useful for tuning
-    MANUAL_VOLTAGE,    // direct open-loop; useful for tuning
+    HOME, // drive to hardstop, zero to MIN_HEIGHT
+    IDLE, // stop output
+    MOVE_TO_POSITION, // closed-loop to a target height (m)
+    HOLD, // hold current goal; useful for tuning
+    MANUAL_VOLTAGE, // direct open-loop; useful for tuning
     OFF
   }
 
@@ -48,7 +48,7 @@ public class Elevator extends SubsystemBase {
 
   // targets / params (state drives behavior)
   private double wantedHeight = ElevatorConstants.Preset.STOW; // meters
-  private double holdHeight   = ElevatorConstants.Preset.STOW; // meters
+  private double holdHeight = ElevatorConstants.Preset.STOW; // meters
   private double manualVolts = 0.0;
 
   // homing params (parity with Wrist style)
@@ -60,13 +60,19 @@ public class Elevator extends SubsystemBase {
   public Elevator(ElevatorIO io) {
     this.io = io;
 
-    leaderDisconnected = new Alert(getName() + " leader motor disconnected!", Alert.AlertType.kWarning);
-    followerDisconnected = new Alert(getName() + " follower motor disconnected!", Alert.AlertType.kWarning);
+    leaderDisconnected =
+        new Alert(getName() + " leader motor disconnected!", Alert.AlertType.kWarning);
+    followerDisconnected =
+        new Alert(getName() + " follower motor disconnected!", Alert.AlertType.kWarning);
     leaderTempFault = new Alert(getName() + " leader motor too hot! 🥵", Alert.AlertType.kWarning);
-    followerTempFault = new Alert(getName() + " follower motor too hot! 🥵", Alert.AlertType.kWarning);
+    followerTempFault =
+        new Alert(getName() + " follower motor too hot! 🥵", Alert.AlertType.kWarning);
 
-    zeroTrigger = new Trigger(()->inputs.data.zeroSwitchTriggered());
-    zeroTrigger.onFalse(new InstantCommand(()->io.zeroElevatorPosition())); //TODO: Move away from command based and poll in periodic...
+    zeroTrigger = new Trigger(() -> inputs.data.zeroSwitchTriggered());
+    zeroTrigger.onFalse(
+        new InstantCommand(
+            () -> io.zeroElevatorPosition())); // TODO: Move away from command based and poll in
+    // periodic...
   }
 
   // --- setWantedState overloads (identical pattern to Wrist) ---
@@ -91,8 +97,10 @@ public class Elevator extends SubsystemBase {
     io.updateInputs(inputs);
     Logger.processInputs("Elevator", inputs);
 
-    leaderDisconnected.set(!motorConnectedDebouncer.calculate(getLeaderConnected()) && !Robot.isJITing());
-    followerDisconnected.set(!followerConnectedDebouncer.calculate(getFollowerConnected()) && !Robot.isJITing());
+    leaderDisconnected.set(
+        !motorConnectedDebouncer.calculate(getLeaderConnected()) && !Robot.isJITing());
+    followerDisconnected.set(
+        !followerConnectedDebouncer.calculate(getFollowerConnected()) && !Robot.isJITing());
     leaderTempFault.set(getLeaderTempFault());
     followerTempFault.set(getFollowerTempFault());
 
@@ -200,7 +208,7 @@ public class Elevator extends SubsystemBase {
   private static double clampToLimits(double meters) {
     return MathUtil.clamp(
         meters, ElevatorConstants.MIN_HEIGHT_METERS, ElevatorConstants.MAX_HEIGHT_METERS);
-    }
+  }
 
   /** Whether the elevator is within tolerance of the wanted height. */
   public boolean reachedSetpoint() {
@@ -208,15 +216,47 @@ public class Elevator extends SubsystemBase {
   }
 
   // IOData Getters (names/shape mirror Wrist accessors)
-  public double  getPositionMeters()         { return inputs.data.positionMeters(); }
-  public double  getVelocityMetersPerSec()   { return inputs.data.velocityMetersPerSec(); }
-  public double  getAppliedVoltage()         { return inputs.data.appliedVolts(); }
-  public double  getSupplyCurrentAmps()      { return inputs.data.supplyCurrentAmps(); }
-  public double  getTorqueCurrentAmps()      { return inputs.data.torqueCurrentAmps(); }
-  public double  getLeaderTempCelsius()      { return inputs.data.tempCelsiusLeader(); }
-  public double  getFollowerTempCelsius()    { return inputs.data.tempCelsiusFollower(); }
-  public boolean getLeaderConnected()        { return inputs.data.motorConnected(); }
-  public boolean getFollowerConnected()      { return inputs.data.followerConnected(); }
-  public boolean getLeaderTempFault()        { return inputs.data.tempFault(); }
-  public boolean getFollowerTempFault()      { return inputs.data.followerTempFault(); }
+  public double getPositionMeters() {
+    return inputs.data.positionMeters();
+  }
+
+  public double getVelocityMetersPerSec() {
+    return inputs.data.velocityMetersPerSec();
+  }
+
+  public double getAppliedVoltage() {
+    return inputs.data.appliedVolts();
+  }
+
+  public double getSupplyCurrentAmps() {
+    return inputs.data.supplyCurrentAmps();
+  }
+
+  public double getTorqueCurrentAmps() {
+    return inputs.data.torqueCurrentAmps();
+  }
+
+  public double getLeaderTempCelsius() {
+    return inputs.data.tempCelsiusLeader();
+  }
+
+  public double getFollowerTempCelsius() {
+    return inputs.data.tempCelsiusFollower();
+  }
+
+  public boolean getLeaderConnected() {
+    return inputs.data.motorConnected();
+  }
+
+  public boolean getFollowerConnected() {
+    return inputs.data.followerConnected();
+  }
+
+  public boolean getLeaderTempFault() {
+    return inputs.data.tempFault();
+  }
+
+  public boolean getFollowerTempFault() {
+    return inputs.data.followerTempFault();
+  }
 }
